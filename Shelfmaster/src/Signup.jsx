@@ -1,0 +1,230 @@
+import React, { useState } from 'react';
+import { localDb } from './localDbClient';
+import { useNavigate, Link } from 'react-router-dom';
+import myLogo from './assets/logo.png';
+import Toast from './Toast';
+
+export default function Signup() {
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+    name: '',
+    student_id: '',
+    course_year: '',
+    role: 'student'
+  });
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState({ message: '', type: 'success' });
+  const navigate = useNavigate();
+  const showToast = (message, type = 'success') => setToast({ message, type });
+
+  const sanitizeText = (str) => str.replace(/<[^>]*>/g, '').trim();
+
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const cleanName = sanitizeText(formData.name);
+    const cleanStudentId = sanitizeText(formData.student_id);
+    const cleanCourseYear = sanitizeText(formData.course_year);
+
+    if (!cleanName || !cleanStudentId || !cleanCourseYear) {
+      showToast('Please enter valid text without HTML tags.', 'warning');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { data: authData, error: authError } = await localDb.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+      });
+
+      if (authError) throw authError;
+
+      if (authData.user) {
+        const { error: profileError } = await localDb
+          .from('users')
+          .insert([{
+            auth_id: authData.user.id,
+            name: cleanName,
+            student_id: cleanStudentId,
+            course_year: cleanCourseYear,
+            role: formData.role,
+            status: 'active'
+          }]);
+
+        if (profileError) throw profileError;
+
+        showToast('Registration successful! You can now log in.', 'success');
+        setTimeout(() => navigate('/login'), 1200);
+      }
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  return (
+    <div style={wrapperStyle}>
+      <Toast {...toast} onClose={() => setToast({ message: '' })} />
+      {/* LEFT PANEL */}
+      <div style={leftPanelStyle}>
+        <div style={overlayStyle}></div>
+        <div style={leftContentStyle}>
+          <img src={myLogo} alt="Logo" style={{ width: '70px', marginBottom: '20px' }} />
+          <h1 style={{ color: 'white', fontSize: '3rem', fontWeight: '800', margin: 0 }}>Join ShelfMaster</h1>
+          <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.1rem', marginTop: '12px', lineHeight: '1.6' }}>
+            Create your account and start exploring our library.
+          </p>
+          <div style={{ marginTop: '40px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.95rem', color: 'rgba(255,255,255,0.8)' }}>
+            <span>✅ Access thousands of titles</span>
+            <span>✅ Real-time availability checks</span>
+            <span>✅ Automated due-date reminders</span>
+          </div>
+        </div>
+      </div>
+
+      {/* RIGHT PANEL */}
+      <div style={rightPanelStyle}>
+        <div style={formCardStyle}>
+          <Link to="/" style={homeLinkStyle}>← Back to Home</Link>
+
+          <img src={myLogo} alt="Logo" style={logoStyle} />
+
+          <h2 style={{ textAlign: 'center', color: 'var(--maroon)', marginBottom: '6px', fontSize: '1.5rem', fontWeight: '800' }}>
+            Create Account
+          </h2>
+          <p style={{ textAlign: 'center', color: '#64748b', marginBottom: '24px', fontSize: '0.9rem' }}>
+            Fill in your details to register
+          </p>
+
+          <form onSubmit={handleSignup} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={inputGroupStyle}>
+              <label style={labelStyle}>Full Name</label>
+              <input type="text" name="name" placeholder="John Doe" style={inputStyle} onChange={handleChange} required />
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ flex: 1, minWidth: 0, ...inputGroupStyle }}>
+                <label style={labelStyle}>Student ID</label>
+                <input type="text" name="student_id" placeholder="2024-0001" style={inputStyle} onChange={handleChange} required />
+              </div>
+              <div style={{ flex: 1, minWidth: 0, ...inputGroupStyle }}>
+                <label style={labelStyle}>Course & Year</label>
+                <input type="text" name="course_year" placeholder="BSCpE-1" style={inputStyle} onChange={handleChange} required />
+              </div>
+            </div>
+
+            <div style={inputGroupStyle}>
+              <label style={labelStyle}>Email Address</label>
+              <input type="email" name="email" placeholder="email@example.com" style={inputStyle} onChange={handleChange} required />
+            </div>
+
+            <div style={inputGroupStyle}>
+              <label style={labelStyle}>Password</label>
+              <input type="password" name="password" placeholder="••••••••" style={inputStyle} onChange={handleChange} required />
+            </div>
+
+            <button type="submit" disabled={loading} style={buttonStyle}>
+              {loading ? 'Creating Account...' : 'Sign Up'}
+            </button>
+          </form>
+
+          <div style={{ textAlign: 'center', marginTop: '16px' }}>
+            <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
+              Already have an account?{' '}
+              <Link to="/login" style={{ color: 'var(--green)', fontWeight: '700', textDecoration: 'none' }}>
+                Sign In
+              </Link>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const wrapperStyle = { display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' };
+
+const leftPanelStyle = {
+  flex: '1.2',
+  background: 'linear-gradient(135deg, var(--maroon) 0%, #6B0D0D 100%)',
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center'
+};
+
+const overlayStyle = {
+  position: 'absolute',
+  top: 0, left: 0, width: '100%', height: '100%',
+  backgroundImage: "url('/library.png')",
+  backgroundSize: 'cover',
+  backgroundPosition: 'center',
+  opacity: 0.08,
+  zIndex: 1
+};
+
+const leftContentStyle = { position: 'relative', zIndex: 2, padding: '60px', width: '100%' };
+
+const rightPanelStyle = {
+  flex: '1',
+  background: 'var(--cream)',
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  overflowY: 'auto',
+  padding: '20px 0'
+};
+
+const formCardStyle = {
+  width: '100%',
+  maxWidth: '420px',
+  padding: '28px',
+  background: 'white',
+  borderRadius: '20px',
+  boxShadow: '0 10px 40px rgba(0,0,0,0.08)',
+};
+
+const homeLinkStyle = {
+  display: 'inline-block',
+  color: 'var(--maroon)',
+  textDecoration: 'none',
+  fontSize: '0.85rem',
+  fontWeight: '600',
+  marginBottom: '16px',
+  opacity: 0.7
+};
+
+const logoStyle = { width: '56px', margin: '0 auto 16px', display: 'block' };
+const inputGroupStyle = { display: 'flex', flexDirection: 'column', gap: '5px' };
+const labelStyle = { fontSize: '0.8rem', fontWeight: '600', color: '#475569' };
+
+const inputStyle = {
+  padding: '11px 14px',
+  borderRadius: '8px',
+  border: '1px solid #e2e8f0',
+  fontSize: '0.95rem',
+  background: 'var(--cream)',
+  outline: 'none',
+  width: '100%',
+  boxSizing: 'border-box'
+};
+
+const buttonStyle = {
+  background: 'var(--maroon)',
+  color: 'white',
+  padding: '13px',
+  borderRadius: '10px',
+  border: 'none',
+  fontWeight: 'bold',
+  fontSize: '1rem',
+  cursor: 'pointer',
+  marginTop: '4px'
+};
