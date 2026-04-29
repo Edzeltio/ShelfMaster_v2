@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import StudentNavbar from './StudentNavbar';
 import { localDb } from './localDbClient';
 import { localDbAdmin } from './localDbAdmin';
+import { useResponsive } from './useResponsive';
 
 export default function StudentHome() {
   const navigate = useNavigate();
+  const { isMobile, isTablet } = useResponsive();
   const [userName, setUserName] = useState('');
   const [stats, setStats] = useState({ loans: 0, pending: 0 });
   const [popularBooks, setPopularBooks] = useState([]);
@@ -99,28 +101,29 @@ export default function StudentHome() {
       <StudentNavbar />
 
       {/* Hero */}
-      <div style={{ background: 'var(--maroon)', padding: '60px 20px', textAlign: 'center', color: 'white' }}>
-        <h1 style={{ fontSize: '2.5rem', marginBottom: '10px' }}>
+      <div style={{ background: 'var(--maroon)', padding: isMobile ? '40px 16px' : isTablet ? '50px 24px' : '60px 20px', textAlign: 'center', color: 'white' }}>
+        <h1 style={{ fontSize: isMobile ? '1.75rem' : isTablet ? '2rem' : '2.5rem', marginBottom: '10px' }}>
           Welcome back{userName ? `, ${userName}` : ''}!
         </h1>
-        <p style={{ opacity: 0.9, marginBottom: '25px' }}>What would you like to read today?</p>
+        <p style={{ opacity: 0.9, marginBottom: '25px', fontSize: isMobile ? '0.95rem' : '1rem' }}>What would you like to read today?</p>
         <button
           onClick={() => navigate('/student/catalog')}
-          style={{ background: 'var(--yellow)', color: 'var(--maroon)', border: 'none', padding: '12px 26px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' }}
+          style={{ background: 'var(--yellow)', color: 'var(--maroon)', border: 'none', padding: isMobile ? '10px 20px' : '12px 26px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: isMobile ? '0.9rem' : '1rem' }}
         >
           Open Catalog →
         </button>
       </div>
 
       {/* Stat Cards */}
-      <div style={{ maxWidth: '1200px', margin: '-40px auto 0', padding: '0 20px 48px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+      <div style={{ maxWidth: '1200px', margin: isMobile ? '-30px auto 0' : '-40px auto 0', padding: isMobile ? '0 16px 24px' : '0 20px 48px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: '16px' }}>
           <StatCard
             title="Active Loans"
             value={stats.loans}
             linkText="View Due Dates"
             color="var(--green)"
             onClick={() => navigate('/student/books')}
+            isMobile={isMobile}
           />
           <StatCard
             title="Pending Requests"
@@ -129,6 +132,7 @@ export default function StudentHome() {
             color="var(--yellow)"
             textColor="var(--maroon)"
             onClick={() => navigate('/student/books')}
+            isMobile={isMobile}
           />
           <StatCard
             title="Account"
@@ -136,20 +140,21 @@ export default function StudentHome() {
             linkText="Update My Info"
             color="var(--maroon)"
             onClick={() => navigate('/student/profile')}
+            isMobile={isMobile}
           />
         </div>
       </div>
 
       {/* Most Popular Books */}
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 20px 60px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: isMobile ? '0 16px 40px' : isTablet ? '0 24px 50px' : '0 20px 60px' }}>
+        <div style={{ display: 'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', marginBottom: '20px', gap: '16px', flexDirection: isMobile ? 'column' : 'row' }}>
           <div>
-            <h2 style={{ color: 'var(--maroon)', margin: '0 0 4px 0', fontSize: '1.5rem' }}>🔥 Most Popular Books</h2>
-            <p style={{ color: '#64748b', margin: 0, fontSize: '0.88rem' }}>Top titles borrowed by students</p>
+            <h2 style={{ color: 'var(--maroon)', margin: '0 0 4px 0', fontSize: isMobile ? '1.2rem' : isTablet ? '1.35rem' : '1.5rem' }}>🔥 Most Popular Books</h2>
+            <p style={{ color: '#64748b', margin: 0, fontSize: isMobile ? '0.8rem' : '0.88rem' }}>Top titles borrowed by students</p>
           </div>
           <button
             onClick={() => navigate('/student/catalog')}
-            style={{ background: 'none', border: '2px solid var(--maroon)', color: 'var(--maroon)', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '0.88rem' }}
+            style={{ background: 'none', border: '2px solid var(--maroon)', color: 'var(--maroon)', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: isMobile ? '0.8rem' : '0.88rem', whiteSpace: 'nowrap' }}
           >
             View All →
           </button>
@@ -168,8 +173,8 @@ export default function StudentHome() {
         ) : (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-            gap: '18px',
+            gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : isTablet ? 'repeat(3, 1fr)' : 'repeat(auto-fill, minmax(180px, 1fr))',
+            gap: isMobile ? '12px' : '18px',
           }}>
             {popularBooks.map((book, index) => {
               const isAvailable = (book.quantity ?? 0) > 0;
@@ -271,14 +276,14 @@ export default function StudentHome() {
   );
 }
 
-function StatCard({ title, value, linkText, color, textColor, onClick }) {
+function StatCard({ title, value, linkText, color, textColor, onClick, isMobile }) {
   return (
-    <div style={{ background: 'white', padding: '25px', borderRadius: '15px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', borderLeft: `5px solid ${color}` }}>
-      <h4 style={{ color: '#64748b', textTransform: 'uppercase', fontSize: '0.8rem', margin: '0 0 10px 0' }}>{title}</h4>
-      <p style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: '0 0 15px 0', color: '#1e293b' }}>{value}</p>
+    <div style={{ background: 'white', padding: isMobile ? '20px' : '25px', borderRadius: '15px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', borderLeft: `5px solid ${color}` }}>
+      <h4 style={{ color: '#64748b', textTransform: 'uppercase', fontSize: isMobile ? '0.75rem' : '0.8rem', margin: '0 0 10px 0' }}>{title}</h4>
+      <p style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 'bold', margin: '0 0 15px 0', color: '#1e293b' }}>{value}</p>
       <button
         onClick={onClick}
-        style={{ background: 'none', border: 'none', padding: 0, color: textColor || color, textDecoration: 'none', fontSize: '0.9rem', fontWeight: '600', cursor: 'pointer' }}
+        style={{ background: 'none', border: 'none', padding: 0, color: textColor || color, textDecoration: 'none', fontSize: isMobile ? '0.85rem' : '0.9rem', fontWeight: '600', cursor: 'pointer' }}
       >
         {linkText} →
       </button>
