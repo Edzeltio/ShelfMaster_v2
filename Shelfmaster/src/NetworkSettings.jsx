@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import Toast from './Toast';
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   setConnection,
   getConnection,
@@ -69,7 +69,11 @@ export default function NetworkSettings() {
     <div style={styles.container}>
       <Toast {...toast} onClose={closeToast} />
       <div style={styles.card}>
-            <Link to="/" style={homeLinkStyle}>← Back to Home</Link>
+            <a
+              href="#"
+              onClick={(e) => { e.preventDefault(); if (window.history.length > 1) navigate(-1); else navigate('/'); }}
+              style={homeLinkStyle}
+            >← Back</a>
         <h2 style={styles.title}>⚙️ Network Connection</h2>
         <p style={styles.subtitle}>
           Connect this device to the main server on your network

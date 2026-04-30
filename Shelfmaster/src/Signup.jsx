@@ -5,13 +5,15 @@ import myLogo from './assets/logo.png';
 import Toast from './Toast';
 import { useResponsive } from './useResponsive';
 
+const LRN_PATTERN = /^\d{12}$/;
+
 export default function Signup() {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     name: '',
-    student_id: '',
-    course_year: '',
+    lrn: '',
+    grade_section: '',
     role: 'student'
   });
   const [loading, setLoading] = useState(false);
@@ -20,6 +22,13 @@ export default function Signup() {
   const { isMobile } = useResponsive();
   const showToast = (message, type = 'success') => setToast({ message, type });
 
+  // Smart back: prefer browser history; fall back to home if there's no history.
+  const handleBack = (e) => {
+    e.preventDefault();
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/');
+  };
+
   const sanitizeText = (str) => str.replace(/<[^>]*>/g, '').trim();
 
   const handleSignup = async (e) => {
@@ -27,42 +36,69 @@ export default function Signup() {
     setLoading(true);
 
     const cleanName = sanitizeText(formData.name);
-    const cleanStudentId = sanitizeText(formData.student_id);
-    const cleanCourseYear = sanitizeText(formData.course_year);
+    const cleanLrn = sanitizeText(formData.lrn);
+    const cleanGradeSection = sanitizeText(formData.grade_section);
+    const cleanEmail = sanitizeText(formData.email).toLowerCase();
 
-    if (!cleanName || !cleanStudentId || !cleanCourseYear) {
-      showToast('Please enter valid text without HTML tags.', 'warning');
+    if (!cleanName || !cleanLrn || !cleanGradeSection || !cleanEmail || !formData.password) {
+      showToast('All fields are required.', 'warning');
+      setLoading(false);
+      return;
+    }
+
+    if (!LRN_PATTERN.test(cleanLrn)) {
+      showToast('LRN must be exactly 12 digits.', 'warning');
+      setLoading(false);
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      showToast('Password must be at least 6 characters long.', 'warning');
       setLoading(false);
       return;
     }
 
     try {
-      const { data: authData, error: authError } = await localDb.auth.signUp({
-        email: formData.email,
+      const signupResult = await localDb.auth.signUp({
+        email: cleanEmail,
         password: formData.password,
       });
 
-      if (authError) throw authError;
+      if (signupResult.error) throw signupResult.error;
+      const authUser = signupResult.data?.user;
+      if (!authUser) throw new Error('Signup failed unexpectedly.');
 
-      if (authData.user) {
-        const { error: profileError } = await localDb
-          .from('users')
-          .insert([{
-            auth_id: authData.user.id,
-            name: cleanName,
-            student_id: cleanStudentId,
-            course_year: cleanCourseYear,
-            role: formData.role,
-            status: 'active'
-          }]);
+      // Create the matching profile row. `lrn` doubles as student_id for
+      // back-compat (the old student_id column still exists).
+      const { error: profileError } = await localDb
+        .from('users')
+        .insert([{
+          auth_id: authUser.id,
+          name: cleanName,
+          student_id: cleanLrn,
+          lrn: cleanLrn,
+          grade_section: cleanGradeSection,
+          course_year: cleanGradeSection, // keep legacy column populated
+          role: formData.role,
+          status: 'active'
+        }]);
 
-        if (profileError) throw profileError;
+      if (profileError) throw profileError;
 
-        showToast('Registration successful! You can now log in.', 'success');
+      if (signupResult.verified) {
+        // First account ever — auto-verified, head straight to login.
+        showToast('Account created! You can sign in now.', 'success');
         setTimeout(() => navigate('/login'), 1200);
+      } else {
+        showToast('Account created — check your email to confirm before signing in.', 'success');
+        // In console-mailer mode we surface the link so dev can finish locally.
+        if (signupResult.verifyUrl) {
+          console.log('[verify] Open this URL to confirm:', signupResult.verifyUrl);
+        }
+        setTimeout(() => navigate('/login'), 1800);
       }
     } catch (err) {
-      showToast('Error: ' + err.message, 'error');
+      showToast('Error: ' + (err.message || 'Could not create account.'), 'error');
     } finally {
       setLoading(false);
     }
@@ -75,7 +111,7 @@ export default function Signup() {
   return (
     <div style={getWrapperStyle(isMobile)}>
       <Toast {...toast} onClose={() => setToast({ message: '' })} />
-      
+
       {/* LEFT PANEL - Hidden on Mobile */}
       {!isMobile && (
         <div style={leftPanelStyle}>
@@ -105,9 +141,9 @@ export default function Signup() {
             <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.95rem', margin: 0 }}>Create your account now</p>
           </div>
         )}
-        
+
         <div style={getFormCardStyle(isMobile)}>
-          <Link to="/" style={homeLinkStyle}>← Back to Home</Link>
+          <a href="#" onClick={handleBack} style={homeLinkStyle}>← Back</a>
 
           {!isMobile && <img src={myLogo} alt="Logo" style={logoStyle} />}
 
@@ -121,28 +157,48 @@ export default function Signup() {
           <form onSubmit={handleSignup} style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '14px' }}>
             <div style={inputGroupStyle}>
               <label style={labelStyle}>Full Name</label>
-              <input type="text" name="name" placeholder="John Doe" style={inputStyle} onChange={handleChange} required />
+              <input type="text" name="name" placeholder="Juan Dela Cruz" style={inputStyle} value={formData.name} onChange={handleChange} required />
             </div>
 
             <div style={getTwoColumnStyle(isMobile)}>
               <div style={{ flex: 1, minWidth: 0, ...inputGroupStyle }}>
-                <label style={labelStyle}>Student ID</label>
-                <input type="text" name="student_id" placeholder="2024-0001" style={inputStyle} onChange={handleChange} required />
+                <label style={labelStyle}>LRN (12 digits)</label>
+                <input
+                  type="text"
+                  name="lrn"
+                  placeholder="123456789012"
+                  inputMode="numeric"
+                  pattern="\d{12}"
+                  maxLength={12}
+                  title="LRN must be exactly 12 digits"
+                  style={inputStyle}
+                  value={formData.lrn}
+                  onChange={handleChange}
+                  required
+                />
               </div>
               <div style={{ flex: 1, minWidth: 0, ...inputGroupStyle }}>
-                <label style={labelStyle}>Course & Year</label>
-                <input type="text" name="course_year" placeholder="BSCpE-1" style={inputStyle} onChange={handleChange} required />
+                <label style={labelStyle}>Grade & Section/Strand</label>
+                <input
+                  type="text"
+                  name="grade_section"
+                  placeholder="Grade 11 - STEM"
+                  style={inputStyle}
+                  value={formData.grade_section}
+                  onChange={handleChange}
+                  required
+                />
               </div>
             </div>
 
             <div style={inputGroupStyle}>
               <label style={labelStyle}>Email Address</label>
-              <input type="email" name="email" placeholder="email@example.com" style={inputStyle} onChange={handleChange} required />
+              <input type="email" name="email" placeholder="email@example.com" style={inputStyle} value={formData.email} onChange={handleChange} required />
             </div>
 
             <div style={inputGroupStyle}>
               <label style={labelStyle}>Password</label>
-              <input type="password" name="password" placeholder="••••••••" style={inputStyle} onChange={handleChange} required />
+              <input type="password" name="password" placeholder="••••••••" style={inputStyle} value={formData.password} onChange={handleChange} required minLength={6} />
             </div>
 
             <button type="submit" disabled={loading} style={buttonStyle}>
@@ -172,33 +228,33 @@ const getWrapperStyle = (isMobile) => ({
   overflow: 'hidden'
 });
 
-const leftPanelStyle = { 
-  flex: '1.2', 
-  background: 'linear-gradient(135deg, var(--maroon) 0%, #6B0D0D 100%)', 
-  position: 'relative', 
-  display: 'flex', 
-  alignItems: 'center', 
-  justifyContent: 'center' 
+const leftPanelStyle = {
+  flex: '1.2',
+  background: 'linear-gradient(135deg, var(--maroon) 0%, #6B0D0D 100%)',
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center'
 };
 
-const overlayStyle = { 
-  position: 'absolute', 
-  top: 0, 
-  left: 0, 
-  width: '100%', 
-  height: '100%', 
-  backgroundImage: "url('/library.png')", 
-  backgroundSize: 'cover', 
-  backgroundPosition: 'center', 
-  opacity: 0.08, 
-  zIndex: 1 
+const overlayStyle = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  backgroundImage: "url('/library.png')",
+  backgroundSize: 'cover',
+  backgroundPosition: 'center',
+  opacity: 0.08,
+  zIndex: 1
 };
 
-const leftContentStyle = { 
-  position: 'relative', 
-  zIndex: 2, 
-  padding: '60px', 
-  width: '100%' 
+const leftContentStyle = {
+  position: 'relative',
+  zIndex: 2,
+  padding: '60px',
+  width: '100%'
 };
 
 const getRightPanelStyle = (isMobile) => ({
@@ -227,53 +283,54 @@ const getTwoColumnStyle = (isMobile) => ({
   flexDirection: isMobile ? 'column' : 'row'
 });
 
-const homeLinkStyle = { 
-  display: 'inline-block', 
-  color: 'var(--maroon)', 
-  textDecoration: 'none', 
-  fontSize: '0.85rem', 
-  fontWeight: '600', 
-  marginBottom: '20px', 
-  opacity: 0.7 
+const homeLinkStyle = {
+  display: 'inline-block',
+  color: 'var(--maroon)',
+  textDecoration: 'none',
+  fontSize: '0.85rem',
+  fontWeight: '600',
+  marginBottom: '20px',
+  opacity: 0.7,
+  cursor: 'pointer'
 };
 
-const logoStyle = { 
-  width: '64px', 
-  margin: '0 auto 20px', 
-  display: 'block' 
+const logoStyle = {
+  width: '64px',
+  margin: '0 auto 20px',
+  display: 'block'
 };
 
-const inputGroupStyle = { 
-  display: 'flex', 
-  flexDirection: 'column', 
-  gap: '6px' 
+const inputGroupStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '6px'
 };
 
-const labelStyle = { 
-  fontSize: '0.85rem', 
-  fontWeight: '600', 
-  color: '#475569' 
+const labelStyle = {
+  fontSize: '0.85rem',
+  fontWeight: '600',
+  color: '#475569'
 };
 
-const inputStyle = { 
-  padding: '12px 16px', 
-  borderRadius: '10px', 
-  border: '1px solid #e2e8f0', 
-  fontSize: '1rem', 
-  background: 'white', 
-  outline: 'none', 
-  transition: 'border-color 0.2s' 
+const inputStyle = {
+  padding: '12px 16px',
+  borderRadius: '10px',
+  border: '1px solid #e2e8f0',
+  fontSize: '1rem',
+  background: 'white',
+  outline: 'none',
+  transition: 'border-color 0.2s'
 };
 
-const buttonStyle = { 
-  background: 'var(--maroon)', 
-  color: 'white', 
-  padding: '14px', 
-  borderRadius: '10px', 
-  border: 'none', 
-  fontWeight: 'bold', 
-  fontSize: '1rem', 
-  cursor: 'pointer', 
-  marginTop: '6px', 
-  transition: 'background 0.2s' 
+const buttonStyle = {
+  background: 'var(--maroon)',
+  color: 'white',
+  padding: '14px',
+  borderRadius: '10px',
+  border: 'none',
+  fontWeight: 'bold',
+  fontSize: '1rem',
+  cursor: 'pointer',
+  marginTop: '6px',
+  transition: 'background 0.2s'
 };

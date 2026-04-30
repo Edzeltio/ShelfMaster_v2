@@ -34,6 +34,8 @@ A web-based library management system (LMS) built with React + Vite, an Express.
 | `SUPABASE_SERVICE_ROLE_KEY` | Replit Secrets | Service-role key from Supabase → Settings → API. **Server-only** — never sent to the browser. |
 | `JWT_SECRET` *(optional)* | Replit Secrets | Override the dev JWT secret. Defaults to `shelfmaster-local-dev-secret`. |
 | `PORT` *(optional)* | env | Defaults to `5000`. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` *(optional)* | Replit Secrets | Outbound email used for verification + notifications. When not set, the server falls back to console-logging the message **and returns the verification URL in the signup response** so signup is still completable in dev. |
+| `APP_BASE_URL` *(optional)* | env | Public base URL used in verification emails (e.g. your `*.replit.app` URL). Defaults to `http://localhost:5000`. |
 
 `server.js` loads `.env` automatically if present, but on Replit these come from Secrets.
 
@@ -49,10 +51,10 @@ The first user account that registers through the app is automatically promoted 
 ## Database Schema (created by `supabase_schema.sql`)
 
 ### `auth_users`
-`id`, `email` (unique), `password_hash` (bcrypt), `created_at`. Used by the Express server's JWT auth.
+`id`, `email` (unique), `password_hash` (bcrypt), `created_at`, `verified` (bool, default `false`), `verification_token` (text, single-use). Used by the Express server's JWT auth + email verification.
 
 ### `users`
-Application profiles. `id`, `auth_id`, `name`, `student_id`, `course_year`, `role` (`student` / `librarian`), `status`, `created_at`.
+Application profiles. `id`, `auth_id`, `name`, `student_id`, `course_year` *(legacy, kept for back-compat)*, **`grade_section`** (e.g. `Grade 11 - STEM`), **`lrn`** (12-digit Learner Reference Number), `role` (`student` / `librarian`), `status`, **`archived_at`** (nullable timestamp; non-null = soft-deleted), `created_at`.
 
 ### `books`
 Title-level book record. `quantity` = number of currently available copies.
@@ -62,10 +64,13 @@ One row per physical copy.
 `id`, `book_id` (FK→books, cascade), `copy_number`, `accession_id` (e.g. `LIB-2026-000001`, unique), `status` (available/borrowed/damaged/lost), `date_acquired`.
 
 ### `transactions`
-`id`, `user_id`, `book_id`, `copy_id`, `status`, `borrow_date`, `due_date`, `return_date`, plus walk-in borrower columns (`walk_in_*`).
+`id`, `user_id`, `book_id`, `copy_id`, `status` (always one of `pending` / `borrowed` / `declined` / `returned`), `borrow_date`, `due_date`, `return_date`, **`fine_amount`** (numeric, populated when an overdue return is processed), plus walk-in borrower columns (`walk_in_*`, including `walk_in_lrn`, `walk_in_grade_section`).
 
 ### `site_content`
-Single-row (`id = 1`) site configuration: hero banner, tagline, about/mission/vision, contact info, footer.
+Single-row (`id = 1`) site configuration: hero banner, tagline, about/mission/vision, contact info, footer, **`fine_per_day`** (₱ per overdue day, defaults to 5).
+
+### `notifications`
+In-app notification feed. `id`, `user_id` (FK→users, cascade), `type`, `title`, `body`, `read`, `created_at`. Inserted by the server whenever a librarian approves/declines a request or processes a return; the same call also tries to send the message via SMTP (or logs it to the console when SMTP is not configured).
 
 ## Per-Copy Barcode System
 
@@ -77,12 +82,29 @@ Single-row (`id = 1`) site configuration: hero banner, tagline, about/mission/vi
 
 ## API Surface
 
-- `POST /api/auth/signup`, `POST /api/auth/login`, `GET /api/auth/user`
-- `POST /api/db/query` — Generic table query proxy used by `localDbClient.js`. Supports `select`, `insert`, `update` against the allow-listed tables (`users`, `books`, `book_copies`, `transactions`, `site_content`). The `select` string is passed straight through to PostgREST, so Supabase relation syntax like `'*, books(*), users(*)'` works.
-- `POST /api/books/:id/archive`, `POST /api/books/:id/unarchive`, `DELETE /api/books/:id` *(librarian-only)*
-- `POST /api/ebooks`, `PATCH /api/ebooks/:id` *(librarian-only)*
-- `POST /api/storage/upload` *(librarian-only)* — saves files under `public/uploads/`, served at `/uploads/...`
+- **Auth & verification**
+  - `POST /api/auth/signup` — Issues a verification token, emails a link, and returns `{ verified, verifyUrl?, mailer }`. The first account ever registered is auto-promoted to **librarian** *and* auto-verified.
+  - `POST /api/auth/login` — Rejects accounts where `auth_users.verified = false` with HTTP 403 (`needs_verification`).
+  - `GET /api/auth/verify?token=…` and `POST /api/auth/verify { token }` — Consumes the single-use token and flips `verified = true`.
+  - `POST /api/auth/resend-verification { email }` — Reissues the token + email.
+  - `GET /api/auth/user`
+- **Generic data proxy**
+  - `POST /api/db/query` — used by `localDbClient.js`. Supports `select`, `insert`, `update` against the allow-listed tables (`users`, `books`, `book_copies`, `transactions`, `site_content`, `notifications`). Relation syntax like `'*, books(*), users(*)'` is passed straight through.
+- **Librarian-only**
+  - `POST /api/books/:id/archive`, `POST /api/books/:id/unarchive`, `DELETE /api/books/:id`
+  - `POST /api/users/:id/archive`, `POST /api/users/:id/unarchive`, `DELETE /api/users/:id`
+  - `POST /api/ebooks`, `PATCH /api/ebooks/:id`
+  - `POST /api/storage/upload` — saves files under `public/uploads/`, served at `/uploads/...`
+  - `POST /api/notifications` — `{ user_id, type, title, body }`. Inserts a row into `notifications` and emails the recipient (or logs the message if SMTP is not configured).
 - `GET /api/health`, `GET /api/test`, `GET /api/lan-info`
+
+## Borrow / Return / Fine Flow
+
+- **Students** request a book through the catalog **Borrow Modal**, choosing a *quantity* and a *desired return date*. The frontend inserts N pending transactions with the same `due_date`.
+- **Librarians** see each request in *Pending Requests* (with the patron's LRN, grade & section, and the date they asked to return by). One-click **Approve** sets the transaction to `borrowed`, assigns the next available `book_copies` row, decrements `books.quantity`, and emails the patron. **Decline** sets it to `declined` and emails the patron. There is no more status-probing — the constraint must accept `borrowed` and `declined`.
+- The same page lists **active loans** with a green **Return** button (red **Return + Fine** when overdue). Returning an overdue book pops a prompt pre-filled with `overdue_days × site_content.fine_per_day`; the librarian can accept, edit, or waive (set 0). The amount is written to `transactions.fine_amount`, the copy is freed, stock is restocked, and the patron is notified.
+- The fine rate is configurable from **Site Settings → Library Policy → Overdue Fine Per Day (₱)**.
+- **Walk-in borrowing** uses the same hard-coded `borrowed` status and supports bulk lending in one submission (one transaction per book, with per-book due-day inputs for students).
 
 Librarian-only endpoints verify the caller's role by joining the JWT subject (`auth_id`) to the `users` table.
 

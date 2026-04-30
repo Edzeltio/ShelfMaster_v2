@@ -7,23 +7,39 @@ create extension if not exists "uuid-ossp";
 -- Local credential store (the Express server hashes passwords with bcrypt
 -- and signs its own JWTs; it does NOT use Supabase Auth).
 create table if not exists auth_users (
-  id            text primary key,
-  email         text not null unique,
-  password_hash text not null,
-  created_at    timestamptz default now()
+  id                  text primary key,
+  email               text not null unique,
+  password_hash       text not null,
+  verified            boolean default false,
+  verification_token  text,
+  created_at          timestamptz default now()
 );
+-- Idempotent migrations for older auth_users tables
+alter table auth_users add column if not exists verified           boolean default false;
+alter table auth_users add column if not exists verification_token text;
 
 create table if not exists users (
-  id           text primary key,
-  auth_id      text,
-  name         text,
-  student_id   text,
-  course_year  text,
-  role         text default 'student',
-  status       text default 'active',
-  created_at   timestamptz default now()
+  id            text primary key,
+  auth_id       text,
+  name          text,
+  student_id    text,
+  course_year   text,            -- legacy: kept for backwards-compat (now unused)
+  grade_section text,            -- e.g. "Grade 11 - STEM"
+  lrn           text,            -- 12-digit Learner Reference Number
+  role          text default 'student',
+  status        text default 'active',
+  archived_at   timestamptz,
+  created_at    timestamptz default now()
 );
-create index if not exists users_auth_id_idx on users(auth_id);
+-- Idempotent migrations for older users tables
+alter table users add column if not exists grade_section text;
+alter table users add column if not exists lrn           text;
+alter table users add column if not exists archived_at   timestamptz;
+-- Backfill grade_section from the old course_year column on first run
+update users set grade_section = course_year
+  where grade_section is null and course_year is not null;
+create index if not exists users_auth_id_idx     on users(auth_id);
+create index if not exists users_archived_at_idx on users(archived_at);
 
 create table if not exists books (
   id             text primary key,
@@ -71,6 +87,7 @@ create table if not exists transactions (
   borrow_date           timestamptz,
   due_date              timestamptz,
   return_date           timestamptz,
+  fine_amount           numeric(10,2) default 0,
   walk_in_name          text,
   walk_in_grade_section text,
   walk_in_lrn           text,
@@ -80,6 +97,7 @@ create table if not exists transactions (
   walk_in_contact       text,
   created_at            timestamptz default now()
 );
+alter table transactions add column if not exists fine_amount numeric(10,2) default 0;
 create index if not exists transactions_user_id_idx  on transactions(user_id);
 create index if not exists transactions_book_id_idx  on transactions(book_id);
 create index if not exists transactions_copy_id_idx  on transactions(copy_id);
@@ -95,8 +113,25 @@ create table if not exists site_content (
   contact_email    text,
   contact_phone    text,
   contact_location text,
-  footer_text      text
+  footer_text      text,
+  fine_per_day     numeric(10,2) default 5
 );
+alter table site_content add column if not exists fine_per_day numeric(10,2) default 5;
+
+-- In-app notifications. Email delivery is handled by the server when SMTP is
+-- configured; rows live here so they're also visible in-app.
+create table if not exists notifications (
+  id          text primary key,
+  user_id     text references users(id) on delete cascade,
+  type        text not null,        -- 'request_approved' | 'request_declined' | 'due_reminder' | 'overdue' | 'fine' | 'verification' | 'general'
+  title       text not null,
+  body        text,
+  email_sent  boolean default false,
+  read        boolean default false,
+  created_at  timestamptz default now()
+);
+create index if not exists notifications_user_id_idx on notifications(user_id);
+create index if not exists notifications_read_idx    on notifications(read);
 
 insert into site_content (
   id, tagline, about_text, contact_email, contact_phone, contact_location, footer_text

@@ -15,6 +15,23 @@ export default function StudentCatalog() {
   const [toast, setToast] = useState({ message: '', type: 'success' });
   const showToast = (message, type = 'success') => setToast({ message, type });
 
+  // Borrow modal state
+  const [borrowBook, setBorrowBook] = useState(null);
+  const [borrowQty, setBorrowQty] = useState(1);
+  const [borrowDueDate, setBorrowDueDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  });
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const openBorrowModal = (book) => {
+    setBorrowBook(book);
+    setBorrowQty(1);
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    setBorrowDueDate(d.toISOString().slice(0, 10));
+  };
+  const closeBorrowModal = () => setBorrowBook(null);
+
   useEffect(() => {
     fetchBooks();
   }, []);
@@ -26,50 +43,60 @@ export default function StudentCatalog() {
     setLoading(false);
   }
 
-  const handleAddToCart = async (book) => {
+  const submitBorrow = async (e) => {
+    e?.preventDefault?.();
+    if (!borrowBook) return;
+    const book = borrowBook;
+    const qty = Math.max(1, Math.min(Number(borrowQty) || 1, book.quantity ?? 1));
+    if (!borrowDueDate) { showToast('Please choose a return date.', 'warning'); return; }
+    if (borrowDueDate < todayIso) { showToast('Return date cannot be in the past.', 'warning'); return; }
+
     setAddingId(book.id);
     try {
       const { data: { user } } = await localDb.auth.getUser();
       if (!user) { showToast('Please log in first.', 'warning'); return; }
 
-      // transactions.user_id is a FK to users.id (not auth.users.id)
       const { data: userData, error: userErr } = await localDb
         .from('users')
         .select('id')
         .eq('auth_id', user.id)
         .single();
-
       if (userErr || !userData) {
         showToast('Could not identify your account. Try logging out and back in.', 'error');
         return;
       }
 
+      // Block re-requesting if there's already a pending request for this book.
       const { data: existing } = await localDb
         .from('transactions')
         .select('id, status')
         .eq('user_id', userData.id)
         .eq('book_id', book.id)
-        .in('status', ['pending', 'borrowed'])
+        .in('status', ['pending'])
         .maybeSingle();
-
       if (existing) {
-        showToast(
-          existing.status === 'borrowed'
-            ? 'You already have this book borrowed.'
-            : 'You already have a pending request for this book.',
-          'warning'
-        );
+        showToast('You already have a pending request for this book — wait for the librarian.', 'warning');
         return;
       }
 
-      const { error } = await localDb.from('transactions').insert([{
+      // Build N pending transactions, one row per copy requested.
+      const rows = Array.from({ length: qty }).map(() => ({
         user_id: userData.id,
         book_id: book.id,
         status: 'pending',
-      }]);
+        due_date: borrowDueDate,
+      }));
 
+      const { error } = await localDb.from('transactions').insert(rows);
       if (error) throw error;
-      showToast(`"${book.title}" added to your requests!`, 'success');
+
+      showToast(
+        qty === 1
+          ? `"${book.title}" requested! Wait for librarian approval.`
+          : `Requested ${qty} copies of "${book.title}".`,
+        'success'
+      );
+      closeBorrowModal();
     } catch (err) {
       showToast(err.message || 'Something went wrong. Please try again.', 'error');
     } finally {
@@ -205,10 +232,10 @@ export default function StudentCatalog() {
                           </span>
                           <button
                             disabled={!isAvailable || addingId === book.id}
-                            onClick={() => handleAddToCart(book)}
+                            onClick={() => openBorrowModal(book)}
                             style={{ ...buttonStyle, opacity: !isAvailable ? 0.4 : 1, cursor: !isAvailable ? 'not-allowed' : 'pointer' }}
                           >
-                            {addingId === book.id ? '...' : 'Request'}
+                            {addingId === book.id ? '...' : 'Borrow'}
                           </button>
                         </div>
                       </div>
@@ -224,9 +251,91 @@ export default function StudentCatalog() {
           </>
         )}
       </div>
+
+      {/* Borrow Modal */}
+      {borrowBook && (
+        <div style={modalOverlayStyle} onClick={closeBorrowModal}>
+          <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <h3 style={{ margin: 0, color: 'var(--maroon)', fontSize: '1.15rem' }}>Borrow Book</h3>
+              <button onClick={closeBorrowModal} style={modalCloseStyle}>✕</button>
+            </div>
+
+            <div style={{ background: 'var(--cream)', padding: '12px 14px', borderRadius: 10, marginBottom: 16 }}>
+              <p style={{ margin: '0 0 4px', fontWeight: 700, color: '#1e293b' }}>{borrowBook.title}</p>
+              <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem' }}>by {borrowBook.authors}</p>
+              <p style={{ margin: '6px 0 0', color: 'var(--green)', fontSize: '0.8rem', fontWeight: 700 }}>
+                {borrowBook.quantity ?? 0} available
+              </p>
+            </div>
+
+            <form onSubmit={submitBorrow} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={modalLabelStyle}>How many copies?</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={borrowBook.quantity ?? 1}
+                  value={borrowQty}
+                  onChange={(e) => setBorrowQty(e.target.value.replace(/\D/g, '') || '1')}
+                  style={modalInputStyle}
+                />
+                <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Up to {borrowBook.quantity ?? 1} copies of this title.
+                </p>
+              </div>
+
+              <div>
+                <label style={modalLabelStyle}>Return on or before</label>
+                <input
+                  type="date"
+                  min={todayIso}
+                  value={borrowDueDate}
+                  onChange={(e) => setBorrowDueDate(e.target.value)}
+                  style={modalInputStyle}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+                <button type="button" onClick={closeBorrowModal} style={modalCancelStyle}>Cancel</button>
+                <button type="submit" disabled={addingId === borrowBook.id} style={modalSubmitStyle}>
+                  {addingId === borrowBook.id ? 'Submitting…' : 'Send Request'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const modalOverlayStyle = {
+  position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20,
+};
+const modalCardStyle = {
+  background: 'white', borderRadius: 16, padding: '24px 22px', width: '100%',
+  maxWidth: 420, boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
+};
+const modalCloseStyle = {
+  background: '#f1f5f9', border: 'none', width: 30, height: 30,
+  borderRadius: 8, fontSize: '0.9rem', cursor: 'pointer', color: '#64748b',
+};
+const modalLabelStyle = { display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#475569', marginBottom: 6 };
+const modalInputStyle = {
+  width: '100%', boxSizing: 'border-box', padding: '11px 14px',
+  borderRadius: 9, border: '1.5px solid #e2e8f0', fontSize: '0.95rem', background: 'var(--cream)', outline: 'none',
+};
+const modalCancelStyle = {
+  flex: 1, padding: 11, borderRadius: 9, border: '1.5px solid #e2e8f0',
+  background: 'white', fontWeight: 600, cursor: 'pointer', color: '#475569',
+};
+const modalSubmitStyle = {
+  flex: 2, padding: 11, borderRadius: 9, border: 'none',
+  background: 'var(--maroon)', color: 'white', fontWeight: 700, cursor: 'pointer',
+};
 
 const filtersBarStyle = {
   display: 'flex',

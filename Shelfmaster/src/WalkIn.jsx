@@ -107,16 +107,12 @@ export default function WalkIn() {
     return data || null;
   };
 
-  const APPROVE_CANDIDATES = ['borrowed', 'approved', 'issued', 'active', 'loaned', 'checked_out', 'released'];
-  const resolveBorrowedStatus = async () => {
-    return localStorage.getItem('sm_approve_status') || APPROVE_CANDIDATES[0];
-  };
-
   const validateStudentForm = () => {
     const { fullName, gradeSection, lrn, teacherName } = studentForm;
     if (!fullName.trim()) return 'Full name is required.';
     if (!gradeSection.trim()) return 'Grade & section (or strand) is required.';
     if (!lrn.trim()) return 'LRN is required.';
+    if (!/^\d{12}$/.test(lrn.trim())) return 'LRN must be exactly 12 digits.';
     if (!teacherName.trim()) return 'Teacher\'s name is required.';
     return null;
   };
@@ -142,7 +138,7 @@ export default function WalkIn() {
 
     setSubmitting(true);
     try {
-      const status = await resolveBorrowedStatus();
+      const status = 'borrowed';
       const borrowDate = new Date().toISOString();
 
       let success = 0;
@@ -310,9 +306,11 @@ export default function WalkIn() {
                 <Field label="Grade & Section / Strand *" value={studentForm.gradeSection}
                   onChange={(v) => setStudentForm(f => ({ ...f, gradeSection: v }))}
                   placeholder="Grade 1 to Grade 12 (e.g. Grade 8 - Section B, Grade 12 - HUMSS)" />
-                <Field label="LRN *" value={studentForm.lrn}
-                  onChange={(v) => setStudentForm(f => ({ ...f, lrn: v }))}
-                  placeholder="123456789012" />
+                <Field label="LRN * (12 digits)" value={studentForm.lrn}
+                  onChange={(v) => setStudentForm(f => ({ ...f, lrn: v.replace(/\D/g, '').slice(0, 12) }))}
+                  placeholder="123456789012"
+                  inputMode="numeric"
+                  maxLength={12} />
                 <Field label="Teacher's Name *" value={studentForm.teacherName}
                   onChange={(v) => setStudentForm(f => ({ ...f, teacherName: v }))}
                   placeholder="Ms. Reyes" />
@@ -477,7 +475,7 @@ export default function WalkIn() {
   );
 }
 
-function Field({ label, value, onChange, placeholder }) {
+function Field({ label, value, onChange, placeholder, inputMode, maxLength }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
       <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569' }}>{label}</label>
@@ -486,6 +484,8 @@ function Field({ label, value, onChange, placeholder }) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        inputMode={inputMode}
+        maxLength={maxLength}
         style={inputStyle}
       />
     </div>

@@ -7,7 +7,8 @@ export default function StudentProfile() {
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ name: '', student_id: '', course_year: '' });
+  const [form, setForm] = useState({ name: '', lrn: '', grade_section: '' });
+  const LRN_PATTERN = /^\d{12}$/;
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [toast, setToast] = useState({ message: '', type: 'success' });
@@ -22,7 +23,7 @@ export default function StudentProfile() {
 
     const { data, error } = await localDb
       .from('users')
-      .select('name, student_id, course_year, role, status')
+      .select('name, student_id, lrn, grade_section, course_year, role, status')
       .eq('auth_id', user.id)
       .maybeSingle();
 
@@ -33,13 +34,17 @@ export default function StudentProfile() {
     if (data) {
       setUserData({ ...data, email: user.email });
     } else {
-      setUserData({ name: user.email?.split('@')[0] || 'Student', email: user.email, student_id: '', course_year: '', role: 'student', status: 'active' });
+      setUserData({ name: user.email?.split('@')[0] || 'Student', email: user.email, lrn: '', grade_section: '', role: 'student', status: 'active' });
     }
     setLoading(false);
   }
 
   function openEditModal() {
-    setForm({ name: userData?.name || '', student_id: userData?.student_id || '', course_year: userData?.course_year || '' });
+    setForm({
+      name: userData?.name || '',
+      lrn: userData?.lrn || userData?.student_id || '',
+      grade_section: userData?.grade_section || userData?.course_year || '',
+    });
     setSaveMsg('');
     setShowModal(true);
   }
@@ -54,20 +59,41 @@ export default function StudentProfile() {
     if (!user) { setSaving(false); return; }
 
     const cleanName = sanitizeText(form.name);
-    const cleanStudentId = sanitizeText(form.student_id);
-    const cleanCourseYear = sanitizeText(form.course_year);
+    const cleanLrn = sanitizeText(form.lrn);
+    const cleanGradeSection = sanitizeText(form.grade_section);
 
     if (!cleanName) {
-      setSaveMsg('Please enter a valid name without HTML tags.');
+      setSaveMsg('Full name is required.');
+      setSaving(false);
+      return;
+    }
+    if (!cleanLrn) {
+      setSaveMsg('LRN is required.');
+      setSaving(false);
+      return;
+    }
+    if (!LRN_PATTERN.test(cleanLrn)) {
+      setSaveMsg('LRN must be exactly 12 digits.');
+      setSaving(false);
+      return;
+    }
+    if (!cleanGradeSection) {
+      setSaveMsg('Grade & Section/Strand is required.');
       setSaving(false);
       return;
     }
 
     const { data: saved, error } = await localDb
       .from('users')
-      .update({ name: cleanName, student_id: cleanStudentId, course_year: cleanCourseYear })
+      .update({
+        name: cleanName,
+        lrn: cleanLrn,
+        student_id: cleanLrn,
+        grade_section: cleanGradeSection,
+        course_year: cleanGradeSection,
+      })
       .eq('auth_id', user.id)
-      .select('name, student_id, course_year')
+      .select('name, lrn, grade_section')
       .maybeSingle();
 
     if (error) {
@@ -77,7 +103,14 @@ export default function StudentProfile() {
       console.warn('Profile update: no rows returned. Check that the users table row exists.');
       setSaveMsg('⚠️ Save failed: the database did not accept the change. Ask your admin to enable UPDATE access on the users table.');
     } else {
-      setUserData(prev => ({ ...prev, name: cleanName, student_id: cleanStudentId, course_year: cleanCourseYear }));
+      setUserData(prev => ({
+        ...prev,
+        name: cleanName,
+        lrn: cleanLrn,
+        student_id: cleanLrn,
+        grade_section: cleanGradeSection,
+        course_year: cleanGradeSection,
+      }));
       setSaveMsg('success');
       setTimeout(() => { setShowModal(false); setSaveMsg(''); }, 1000);
     }
@@ -126,8 +159,8 @@ export default function StudentProfile() {
 
         {/* ── Info Grid ── */}
         <div style={infoGridStyle}>
-          <InfoCard icon="🪪" label="Student ID" value={userData?.student_id || '—'} />
-          <InfoCard icon="🎓" label="Course & Year" value={userData?.course_year || '—'} />
+          <InfoCard icon="🪪" label="LRN" value={userData?.lrn || userData?.student_id || '—'} />
+          <InfoCard icon="🎓" label="Grade & Section/Strand" value={userData?.grade_section || userData?.course_year || '—'} />
           <InfoCard
             icon={isActive ? '✅' : '🚫'}
             label="Account Status"
@@ -155,10 +188,11 @@ export default function StudentProfile() {
             <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <Field label="Full Name" placeholder="Your full name" value={form.name}
                 onChange={v => setForm(p => ({ ...p, name: v }))} required />
-              <Field label="Student ID" placeholder="e.g. 2024-0001" value={form.student_id}
-                onChange={v => setForm(p => ({ ...p, student_id: v }))} />
-              <Field label="Course & Year" placeholder="e.g. BSCS-2" value={form.course_year}
-                onChange={v => setForm(p => ({ ...p, course_year: v }))} />
+              <Field label="LRN (12 digits)" placeholder="123456789012" value={form.lrn}
+                onChange={v => setForm(p => ({ ...p, lrn: v.replace(/\D/g, '').slice(0, 12) }))}
+                inputMode="numeric" maxLength={12} required />
+              <Field label="Grade & Section/Strand" placeholder="Grade 11 - STEM" value={form.grade_section}
+                onChange={v => setForm(p => ({ ...p, grade_section: v }))} required />
 
               {saveMsg && saveMsg !== 'success' && (
                 <p style={{ margin: 0, fontSize: '0.85rem', color: '#ef4444', textAlign: 'center' }}>{saveMsg}</p>
@@ -193,7 +227,7 @@ function InfoCard({ icon, label, value }) {
   );
 }
 
-function Field({ label, placeholder, value, onChange, required }) {
+function Field({ label, placeholder, value, onChange, required, inputMode, maxLength }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
       <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>{label}</label>
@@ -203,6 +237,8 @@ function Field({ label, placeholder, value, onChange, required }) {
         value={value}
         onChange={e => onChange(e.target.value)}
         required={required}
+        inputMode={inputMode}
+        maxLength={maxLength}
         style={{
           padding: '11px 14px',
           borderRadius: '9px',

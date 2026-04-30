@@ -1,9 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import { localDb } from './localDbClient';
 import { localDbAdmin } from './localDbAdmin';
+import { getBaseURL } from './connectionManager';
 import Toast from './Toast';
 
 const ACTIVE_STATUSES = ['borrowed', 'approved', 'issued', 'active', 'loaned', 'checked_out'];
+
+// Fire-and-log helper so the librarian flow never blocks on email failures.
+async function notifyUser({ user_id, type, title, body }) {
+  if (!user_id) return;
+  try {
+    const base = getBaseURL();
+    const session = JSON.parse(window.sessionStorage.getItem('shelfmaster-session') || 'null');
+    await fetch((base || '').replace(/\/$/, '') + '/api/notifications', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
+      body: JSON.stringify({ user_id, type, title, body }),
+    });
+  } catch (err) {
+    console.warn('[notify] failed:', err.message);
+  }
+}
 
 export default function PendingRequests() {
   const [activeTab, setActiveTab] = useState('pending');
@@ -11,9 +31,24 @@ export default function PendingRequests() {
   const [activeLoans, setActiveLoans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ message: '', type: 'success' });
+  const [finePerDay, setFinePerDay] = useState(5);
   const showToast = (message, type = 'success') => setToast({ message, type });
 
+  async function fetchFinePerDay() {
+    const { data } = await localDbAdmin
+      .from('site_content')
+      .select('fine_per_day')
+      .limit(1)
+      .maybeSingle();
+    if (data && data.fine_per_day != null) setFinePerDay(Number(data.fine_per_day));
+  }
+
   useEffect(() => {
+    // Clean up cache keys left over from the old status-probing logic.
+    try {
+      localStorage.removeItem('sm_approve_status');
+      localStorage.removeItem('sm_decline_status');
+    } catch {}
     fetchAll();
     const onVisible = () => { if (!document.hidden) fetchAll(); };
     document.addEventListener('visibilitychange', onVisible);
@@ -22,7 +57,7 @@ export default function PendingRequests() {
 
   async function fetchAll() {
     setLoading(true);
-    await Promise.all([fetchPendingRequests(), fetchActiveLoans()]);
+    await Promise.all([fetchPendingRequests(), fetchActiveLoans(), fetchFinePerDay()]);
     setLoading(false);
   }
 
@@ -35,7 +70,8 @@ export default function PendingRequests() {
         status,
         user_id,
         book_id,
-        users (name, student_id, role),
+        due_date,
+        users (name, student_id, lrn, grade_section, role),
         books (title, barcode, quantity)
       `)
       .eq('status', 'pending')
@@ -90,67 +126,6 @@ export default function PendingRequests() {
     }
   }
 
-  const APPROVE_CANDIDATES = ['borrowed', 'approved', 'issued', 'active', 'loaned', 'checked_out', 'released'];
-  const DECLINE_CANDIDATES = ['declined', 'rejected', 'cancelled', 'denied', 'archived'];
-
-  const resolveStatus = async (transactionId, isApprove, isTeacher) => {
-    const storageKey = isApprove ? 'sm_approve_status' : 'sm_decline_status';
-    const cached = localStorage.getItem(storageKey);
-    if (cached) {
-      const dueDate = isApprove && !isTeacher
-        ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-        : null;
-
-      const { data, error } = await localDbAdmin
-        .from('transactions')
-        .update({
-          status: cached,
-          borrow_date: isApprove ? new Date().toISOString() : null,
-          due_date: isApprove ? dueDate : null,
-        })
-        .eq('id', transactionId)
-        .select();
-
-      if (!error && data && data.length > 0) {
-        return cached;
-      }
-
-      localStorage.removeItem(storageKey);
-      if (error && error.code !== '23514') throw error;
-    }
-
-    const candidates = isApprove ? APPROVE_CANDIDATES : DECLINE_CANDIDATES;
-    const dueDate = isApprove && !isTeacher
-      ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-      : null;
-
-    for (const candidate of candidates) {
-      const { data, error } = await localDbAdmin
-        .from('transactions')
-        .update({
-          status: candidate,
-          borrow_date: isApprove ? new Date().toISOString() : null,
-          due_date: isApprove ? dueDate : null,
-        })
-        .eq('id', transactionId)
-        .select();
-
-      if (error?.code === '23514') {
-        console.log(`Status "${candidate}" rejected by constraint, trying next...`);
-        continue;
-      }
-      if (error) throw error;
-      if (data && data.length > 0) {
-        console.log(`Discovered working status: "${candidate}"`);
-        localStorage.setItem(storageKey, candidate);
-        return candidate;
-      }
-    }
-    throw new Error(
-      'Could not find an accepted status value. Please check your transactions table status constraint.'
-    );
-  };
-
   const assignAvailableCopy = async (bookId) => {
     const { data: copy, error } = await localDbAdmin
       .from('book_copies')
@@ -168,8 +143,14 @@ export default function PendingRequests() {
     return copy || null;
   };
 
-  const handleAction = async (transactionId, isApprove, bookId, currentStock, userRole) => {
+  const handleAction = async (req, isApprove) => {
     try {
+      const transactionId = req.id;
+      const bookId = req.book_id;
+      const currentStock = req.books?.quantity ?? 0;
+      const userRole = req.users?.role;
+      const userId = req.user_id;
+      const bookTitle = req.books?.title || 'your book';
       const isTeacher = userRole === 'teacher';
 
       if (isApprove) {
@@ -178,11 +159,15 @@ export default function PendingRequests() {
           return;
         }
 
+        // Honour the due date the student picked in the borrow modal; otherwise
+        // fall back to the legacy 7-day default. Teachers stay open-ended.
+        const dueDate = isTeacher
+          ? null
+          : (req.due_date
+            ? new Date(req.due_date).toISOString()
+            : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
+
         const copy = await assignAvailableCopy(bookId);
-        const dueDate = !isTeacher
-          ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-          : null;
-        const resolvedStatus = await resolveStatus(transactionId, true, isTeacher);
 
         if (copy) {
           const { error: copyUpdateError } = await localDbAdmin
@@ -190,36 +175,18 @@ export default function PendingRequests() {
             .update({ status: 'borrowed' })
             .eq('id', copy.id);
           if (copyUpdateError) throw copyUpdateError;
-
-          await localDbAdmin
-            .from('transactions')
-            .update({
-              status: resolvedStatus,
-              borrow_date: new Date().toISOString(),
-              due_date: dueDate,
-              copy_id: copy.id,
-            })
-            .eq('id', transactionId);
-
-          showToast(
-            `Copy ${copy.accession_id} assigned to ${isTeacher ? 'teacher (no due date)' : 'student (7-day loan)'}.`,
-            'success'
-          );
-        } else {
-          await localDbAdmin
-            .from('transactions')
-            .update({
-              status: resolvedStatus,
-              borrow_date: new Date().toISOString(),
-              due_date: dueDate,
-            })
-            .eq('id', transactionId);
-
-          showToast(
-            `Book approved for ${isTeacher ? 'teacher (no due date)' : 'student (7-day loan)'}.`,
-            'success'
-          );
         }
+
+        const { error: txError } = await localDbAdmin
+          .from('transactions')
+          .update({
+            status: 'borrowed',
+            borrow_date: new Date().toISOString(),
+            due_date: dueDate,
+            ...(copy ? { copy_id: copy.id } : {}),
+          })
+          .eq('id', transactionId);
+        if (txError) throw txError;
 
         const { error: stockError } = await localDbAdmin
           .from('books')
@@ -227,16 +194,124 @@ export default function PendingRequests() {
           .eq('id', bookId);
         if (stockError) throw stockError;
 
+        const dueLabel = dueDate ? new Date(dueDate).toLocaleDateString() : 'no due date';
+        showToast(
+          copy
+            ? `Copy ${copy.accession_id} approved (${dueLabel}).`
+            : `Request approved (${dueLabel}).`,
+          'success'
+        );
+
+        notifyUser({
+          user_id: userId,
+          type: 'borrow_approved',
+          title: 'Your borrow request was approved',
+          body: `"${bookTitle}" has been approved.\nReturn by: ${dueLabel}.`,
+        });
+
       } else {
-        await resolveStatus(transactionId, false, false);
+        const { error } = await localDbAdmin
+          .from('transactions')
+          .update({ status: 'declined' })
+          .eq('id', transactionId);
+        if (error) throw error;
         showToast('Request declined.', 'success');
+
+        notifyUser({
+          user_id: userId,
+          type: 'borrow_declined',
+          title: 'Your borrow request was declined',
+          body: `Your request for "${bookTitle}" was declined by the librarian.`,
+        });
       }
 
       fetchAll();
-
     } catch (error) {
       console.error('handleAction error:', error);
       showToast('Error: ' + error.message, 'error');
+    }
+  };
+
+  const computeOverdueDays = (dueDate) => {
+    if (!dueDate) return 0;
+    const ms = Date.now() - new Date(dueDate).getTime();
+    if (ms <= 0) return 0;
+    return Math.ceil(ms / (24 * 60 * 60 * 1000));
+  };
+
+  const handleReturn = async (loan) => {
+    try {
+      const overdueDays = computeOverdueDays(loan.due_date);
+      const suggested = (overdueDays * finePerDay).toFixed(2);
+      let fineAmount = 0;
+
+      if (overdueDays > 0) {
+        const input = window.prompt(
+          `This book is ${overdueDays} day(s) overdue.\n\nFine: ₱${finePerDay}/day → suggested ₱${suggested}\n\nEnter the fine amount to record (or 0 to waive):`,
+          suggested
+        );
+        if (input === null) return; // cancelled
+        const parsed = Number(input);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          showToast('Invalid fine amount.', 'error');
+          return;
+        }
+        fineAmount = parsed;
+      }
+
+      const updates = {
+        status: 'returned',
+        return_date: new Date().toISOString(),
+      };
+      if (fineAmount > 0) updates.fine_amount = fineAmount;
+
+      const { error: txError } = await localDbAdmin
+        .from('transactions')
+        .update(updates)
+        .eq('id', loan.id);
+      if (txError) throw txError;
+
+      // Free the assigned copy if any.
+      if (loan.book_copies?.accession_id) {
+        await localDbAdmin
+          .from('book_copies')
+          .update({ status: 'available' })
+          .eq('accession_id', loan.book_copies.accession_id);
+      }
+
+      // Restock.
+      const { data: bookRow } = await localDbAdmin
+        .from('books')
+        .select('quantity')
+        .eq('id', loan.book_id)
+        .maybeSingle();
+      if (bookRow) {
+        await localDbAdmin
+          .from('books')
+          .update({ quantity: (bookRow.quantity ?? 0) + 1 })
+          .eq('id', loan.book_id);
+      }
+
+      showToast(
+        fineAmount > 0
+          ? `Returned. Fine ₱${fineAmount.toFixed(2)} recorded.`
+          : 'Book returned.',
+        'success'
+      );
+
+      notifyUser({
+        user_id: loan.user_id,
+        type: fineAmount > 0 ? 'return_with_fine' : 'returned',
+        title: fineAmount > 0 ? 'Book returned — fine due' : 'Book returned',
+        body: fineAmount > 0
+          ? `Your return of "${loan.books?.title}" was recorded. Overdue ${overdueDays} day(s). Fine due: ₱${fineAmount.toFixed(2)}.`
+          : `Your return of "${loan.books?.title}" was recorded. Thank you!`,
+      });
+
+      fetchAll();
+    } catch (e) {
+      console.error('handleReturn error:', e);
+      showToast('Error: ' + e.message, 'error');
     }
   };
 
@@ -345,7 +420,10 @@ export default function PendingRequests() {
                     </td>
                     <td style={{ padding: '15px 20px' }}>
                       <strong style={{ color: 'var(--dark-blue)', display: 'block' }}>{req.users?.name}</strong>
-                      <span style={{ fontSize: '0.85rem', color: '#64748b' }}>ID: {req.users?.student_id || 'N/A'}</span>
+                      <span style={{ fontSize: '0.78rem', color: '#64748b', display: 'block' }}>LRN: {req.users?.lrn || req.users?.student_id || 'N/A'}</span>
+                      {req.users?.grade_section && (
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{req.users.grade_section}</span>
+                      )}
                     </td>
                     <td style={{ padding: '15px 20px' }}>
                       <strong style={{ display: 'block' }}>{req.books?.title}</strong>
@@ -362,13 +440,17 @@ export default function PendingRequests() {
                         {req.users?.role}
                       </span>
                       <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>
-                        {req.users?.role === 'teacher' ? 'No due date' : '7-day loan'}
+                        {req.users?.role === 'teacher'
+                          ? 'No due date'
+                          : (req.due_date
+                              ? `Wants by: ${new Date(req.due_date).toLocaleDateString()}`
+                              : '7-day loan')}
                       </div>
                     </td>
                     <td style={{ padding: '15px 20px' }}>
                       <div style={{ display: 'flex', gap: '10px' }}>
                         <button
-                          onClick={() => handleAction(req.id, true, req.book_id, req.books?.quantity, req.users?.role)}
+                          onClick={() => handleAction(req, true)}
                           disabled={req.books?.quantity <= 0}
                           style={{
                             padding: '8px 12px',
@@ -381,7 +463,7 @@ export default function PendingRequests() {
                           ✓ Approve & Assign Copy
                         </button>
                         <button
-                          onClick={() => handleAction(req.id, false, req.book_id, req.books?.quantity, req.users?.role)}
+                          onClick={() => handleAction(req, false)}
                           style={{ padding: '8px 12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold' }}
                         >
                           Decline
@@ -410,6 +492,7 @@ export default function PendingRequests() {
                   <th style={{ padding: '15px 20px', color: '#475569' }}>Borrow Date</th>
                   <th style={{ padding: '15px 20px', color: '#475569' }}>Due Date</th>
                   <th style={{ padding: '15px 20px', color: '#475569' }}>Status</th>
+                  <th style={{ padding: '15px 20px', color: '#475569' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -451,6 +534,19 @@ export default function PendingRequests() {
                         }}>
                           {overdue ? 'OVERDUE' : 'BORROWED'}
                         </span>
+                      </td>
+                      <td style={{ padding: '15px 20px' }}>
+                        <button
+                          onClick={() => handleReturn(loan)}
+                          style={{
+                            padding: '8px 14px',
+                            background: overdue ? '#e11d48' : 'var(--green)',
+                            color: 'white', border: 'none', borderRadius: '4px',
+                            cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold'
+                          }}
+                        >
+                          {overdue ? 'Return + Fine' : 'Return'}
+                        </button>
                       </td>
                     </tr>
                   );

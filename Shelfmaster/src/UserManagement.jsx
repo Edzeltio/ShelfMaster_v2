@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { localDbAdmin } from './localDbAdmin';
+import { getBaseURL } from './connectionManager';
+import Toast from './Toast';
 
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
+  const [toast, setToast] = useState({ message: '', type: 'success' });
+  const showToast = (message, type = 'success') => setToast({ message, type });
 
   const [selectedUser, setSelectedUser] = useState(null);
   const [userLoans, setUserLoans] = useState([]);
@@ -25,6 +30,71 @@ export default function UserManagement() {
     if (error) console.error('Error fetching students:', error);
     else setUsers(data || []);
     setLoading(false);
+  }
+
+  function getAuthHeaders() {
+    let token = '';
+    try {
+      const raw = sessionStorage.getItem('shelfmaster-session');
+      if (raw) token = JSON.parse(raw)?.access_token || '';
+    } catch {}
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }
+
+  async function handleArchive(user) {
+    if (!window.confirm(`Archive ${user.name}? They will no longer appear in the active list and cannot log in.`)) return;
+    try {
+      const res = await fetch(`${getBaseURL()}/api/users/${user.id}/archive`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Archive failed');
+      showToast(`${user.name} archived.`);
+      fetchUsers();
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  async function handleUnarchive(user) {
+    try {
+      const res = await fetch(`${getBaseURL()}/api/users/${user.id}/unarchive`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Restore failed');
+      showToast(`${user.name} restored.`);
+      fetchUsers();
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  async function handleDelete(user) {
+    if (!window.confirm(
+      `PERMANENTLY DELETE ${user.name}?\n\nThis removes their account and all associated history. ` +
+      `This cannot be undone. Type OK in the next prompt to confirm.`
+    )) return;
+    const typed = window.prompt(`Type DELETE to confirm permanent deletion of ${user.name}:`);
+    if (typed !== 'DELETE') {
+      showToast('Deletion cancelled.', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${getBaseURL()}/api/users/${user.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
+      showToast(`${user.name} deleted.`);
+      if (selectedUser?.id === user.id) setSelectedUser(null);
+      fetchUsers();
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    }
   }
 
   async function toggleLoans(user) {
@@ -62,28 +132,50 @@ export default function UserManagement() {
     setLoansLoading(false);
   }
 
-  const filteredUsers = users.filter(user =>
-    user.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.student_id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.course_year?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredUsers = users
+    .filter(user => showArchived ? !!user.archived_at : !user.archived_at)
+    .filter(user => {
+      const q = searchQuery.toLowerCase();
+      if (!q) return true;
+      return (
+        user.name?.toLowerCase().includes(q) ||
+        user.student_id?.toLowerCase().includes(q) ||
+        user.lrn?.toLowerCase().includes(q) ||
+        user.grade_section?.toLowerCase().includes(q) ||
+        user.course_year?.toLowerCase().includes(q)
+      );
+    });
 
   const isOverdue = (dueDate) => dueDate && new Date(dueDate) < new Date();
 
   return (
-    <div style={{ maxWidth: '1100px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+    <div style={{ maxWidth: '1200px' }}>
+      <Toast {...toast} onClose={() => setToast({ message: '' })} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ color: 'var(--dark-blue)', margin: 0 }}>Student Management</h1>
-          <p style={{ color: 'var(--text-muted)', marginTop: '5px' }}>Search and manage registered student accounts.</p>
+          <p style={{ color: 'var(--text-muted)', marginTop: '5px' }}>
+            Search, archive, restore or permanently delete student accounts.
+          </p>
         </div>
-        <div style={{ width: '350px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            onClick={() => setShowArchived(s => !s)}
+            style={{
+              padding: '10px 16px', borderRadius: '8px', border: '1px solid #cbd5e1',
+              background: showArchived ? '#fee2e2' : 'white',
+              color: showArchived ? '#991b1b' : '#475569',
+              cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
+            }}
+          >
+            {showArchived ? 'Showing: Archived' : 'Show Archived'}
+          </button>
           <input
             type="text"
-            placeholder="Search by name, ID, or course..."
+            placeholder="Search by name, LRN, grade & section..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ width: '100%', padding: '12px 20px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', boxSizing: 'border-box' }}
+            style={{ width: '320px', padding: '12px 20px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', boxSizing: 'border-box' }}
           />
         </div>
       </div>
@@ -96,31 +188,44 @@ export default function UserManagement() {
             <thead style={{ background: '#F5FAE8', borderBottom: '2px solid #e2e8f0' }}>
               <tr>
                 <th style={thStyle}>Student Name</th>
-                <th style={thStyle}>Student ID</th>
-                <th style={thStyle}>Course & Year</th>
+                <th style={thStyle}>LRN / Student ID</th>
+                <th style={thStyle}>Grade & Section / Strand</th>
                 <th style={thStyle}>Books Held</th>
                 <th style={thStyle}>Status</th>
+                <th style={thStyle}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan="5" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>No students found.</td>
+                  <td colSpan="6" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
+                    {showArchived ? 'No archived students.' : 'No students found.'}
+                  </td>
                 </tr>
               ) : (
                 filteredUsers.map(user => {
                   const activeLoans = user.transactions?.filter(t => t.status === 'borrowed').length || 0;
                   const isOpen = selectedUser?.id === user.id;
+                  const archived = !!user.archived_at;
 
                   return (
                     <React.Fragment key={user.id}>
                       {/* Student row */}
-                      <tr style={{ borderBottom: isOpen ? 'none' : '1px solid #f1f5f9', background: isOpen ? '#f0fdf4' : 'white' }}>
+                      <tr style={{ borderBottom: isOpen ? 'none' : '1px solid #f1f5f9', background: isOpen ? '#f0fdf4' : (archived ? '#fafafa' : 'white'), opacity: archived ? 0.78 : 1 }}>
                         <td style={{ padding: '15px 20px' }}>
                           <div style={{ fontWeight: 'bold', color: 'var(--dark-blue)' }}>{user.name}</div>
+                          {archived && (
+                            <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px' }}>
+                              Archived {new Date(user.archived_at).toLocaleDateString()}
+                            </div>
+                          )}
                         </td>
-                        <td style={{ padding: '15px 20px', color: '#475569' }}>{user.student_id}</td>
-                        <td style={{ padding: '15px 20px', color: '#475569' }}>{user.course_year}</td>
+                        <td style={{ padding: '15px 20px', color: '#475569' }}>
+                          {user.lrn || user.student_id || <span style={{ color: '#94a3b8' }}>—</span>}
+                        </td>
+                        <td style={{ padding: '15px 20px', color: '#475569' }}>
+                          {user.grade_section || user.course_year || <span style={{ color: '#94a3b8' }}>—</span>}
+                        </td>
                         <td style={{ padding: '15px 20px' }}>
                           <button
                             onClick={() => toggleLoans(user)}
@@ -143,16 +248,35 @@ export default function UserManagement() {
                           </button>
                         </td>
                         <td style={{ padding: '15px 20px' }}>
-                          <span style={{ color: user.status === 'active' ? '#10b981' : '#ef4444', fontSize: '0.85rem', fontWeight: 'bold', textTransform: 'capitalize' }}>
-                            ● {user.status}
+                          <span style={{
+                            color: archived ? '#94a3b8' : (user.status === 'active' ? '#10b981' : '#ef4444'),
+                            fontSize: '0.85rem', fontWeight: 'bold', textTransform: 'capitalize'
+                          }}>
+                            ● {archived ? 'archived' : (user.status || 'active')}
                           </span>
+                        </td>
+                        <td style={{ padding: '15px 20px' }}>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            {archived ? (
+                              <button onClick={() => handleUnarchive(user)} style={actionBtn('#10b981')}>
+                                Restore
+                              </button>
+                            ) : (
+                              <button onClick={() => handleArchive(user)} style={actionBtn('#f59e0b')}>
+                                Archive
+                              </button>
+                            )}
+                            <button onClick={() => handleDelete(user)} style={actionBtn('#ef4444')}>
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
 
                       {/* Dropdown row — expands inline */}
                       {isOpen && (
                         <tr style={{ borderBottom: '2px solid #bbf7d0' }}>
-                          <td colSpan="5" style={{ padding: 0, background: '#f8fffe' }}>
+                          <td colSpan="6" style={{ padding: 0, background: '#f8fffe' }}>
                             {/* Inner header */}
                             <div style={{
                               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -261,6 +385,17 @@ const thStyle = {
   textTransform: 'uppercase',
   fontWeight: 600,
 };
+
+const actionBtn = (color) => ({
+  background: 'transparent',
+  border: `1px solid ${color}`,
+  color: color,
+  padding: '5px 10px',
+  borderRadius: '6px',
+  cursor: 'pointer',
+  fontSize: '0.78rem',
+  fontWeight: 700,
+});
 
 const subThStyle = {
   padding: '8px 20px',

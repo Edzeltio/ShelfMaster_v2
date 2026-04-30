@@ -249,7 +249,27 @@ export const localDb = {
         return { data: { user: null, session: null }, error: result.error };
       }
 
-      return { data: { user: result.user, session: null }, error: null };
+      return {
+        data: { user: result.user, session: null },
+        error: null,
+        verified: result.verified,
+        mailer: result.mailer,
+        verifyUrl: result.verifyUrl,
+      };
+    },
+
+    verifyEmail: async (token) => {
+      return apiRequest('/api/auth/verify', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
+    },
+
+    resendVerification: async (email) => {
+      return apiRequest('/api/auth/resend-verification', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
     },
 
     signOut: async () => {

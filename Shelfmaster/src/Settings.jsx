@@ -11,7 +11,8 @@ export default function Settings() {
     contact_email: '',
     contact_phone: '',
     contact_location: '',
-    footer_text: ''
+    footer_text: '',
+    fine_per_day: 5
   });
   
   const [loading, setLoading] = useState(true);
@@ -153,6 +154,26 @@ export default function Settings() {
 
           <label style={labelStyle}>Footer Copyright Text</label>
           <input style={inputStyle} type="text" name="footer_text" value={formData.footer_text || ''} onChange={handleChange} />
+        </div>
+
+        {/* LIBRARY POLICY */}
+        <div style={cardStyle}>
+          <h2 style={{ borderBottom: '2px solid #f1f5f9', paddingBottom: '10px', marginTop: 0, color: '#334155' }}>Library Policy</h2>
+
+          <label style={labelStyle}>Overdue Fine Per Day (₱)</label>
+          <input
+            style={inputStyle}
+            type="number"
+            min="0"
+            step="0.01"
+            name="fine_per_day"
+            value={formData.fine_per_day ?? 5}
+            onChange={(e) => setFormData({ ...formData, fine_per_day: e.target.value === '' ? '' : Number(e.target.value) })}
+            placeholder="5"
+          />
+          <p style={{ marginTop: '-10px', marginBottom: '0', fontSize: '0.85rem', color: '#64748b' }}>
+            Used by the librarian to compute fines on overdue returns.
+          </p>
         </div>
 
         {/* SAVE BUTTON */}

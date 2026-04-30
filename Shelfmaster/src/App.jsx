@@ -6,6 +6,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } f
 import Home from './Home';
 import Login from './Login';
 import Signup from './Signup';
+import VerifyEmail from './VerifyEmail';
 
 // Student Pages
 import StudentRoute from './StudentRoute';
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/verify" element={<VerifyEmail />} />
         <Route path="/networksettings" element={<NetworkSettings />} />
 
         {/* 2. STUDENT ROUTES — wrapped in StudentRoute to enforce role + cross-tab session safety */}
@@ -78,6 +80,7 @@ function ConditionalNavbar() {
     path.startsWith('/student') || 
     path === '/login' || 
     path === '/signup' ||
+    path === '/verify' ||
     path === '/networksettings';
 
   if (isInternalPage) return null;

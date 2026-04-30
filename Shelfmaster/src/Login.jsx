@@ -10,23 +10,53 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState({ message: '', type: 'error' });
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resending, setResending] = useState(false);
   const navigate = useNavigate();
   const { isMobile } = useResponsive();
 
   const showToast = (message, type = 'error') => setToast({ message, type });
   const closeToast = () => setToast({ message: '' });
 
+  const handleBack = (e) => {
+    e.preventDefault();
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/');
+  };
+
+  const handleResend = async () => {
+    if (!email) { showToast('Enter your email above first.', 'warning'); return; }
+    setResending(true);
+    const result = await localDb.auth.resendVerification(email);
+    setResending(false);
+    if (result?.error) {
+      showToast(result.error.message || 'Could not resend email.', 'error');
+    } else if (result?.alreadyVerified) {
+      showToast('That email is already verified — try signing in.', 'success');
+      setNeedsVerification(false);
+    } else {
+      showToast('Verification email sent — please check your inbox.', 'success');
+      if (result?.verifyUrl) console.log('[verify] Open this URL to confirm:', result.verifyUrl);
+    }
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setNeedsVerification(false);
 
     const { data: authData, error: authError } = await localDb.auth.signInWithPassword({ email, password });
 
     if (authError) {
-      const msg = authError.message.includes('Invalid login credentials')
-        ? 'Incorrect email or password. Please try again.'
-        : authError.message;
-      showToast(msg, 'error');
+      const msg = authError.message;
+      if (msg.toLowerCase().includes('verify') || msg.toLowerCase().includes('verification')) {
+        setNeedsVerification(true);
+        showToast(msg, 'warning');
+      } else if (msg.includes('Invalid login credentials')) {
+        showToast('Incorrect email or password. Please try again.', 'error');
+      } else {
+        showToast(msg, 'error');
+      }
       setLoading(false);
       return;
     }
@@ -89,7 +119,7 @@ export default function Login() {
         )}
         
         <div style={getFormCardStyle(isMobile)}>
-          <Link to="/" style={homeLinkStyle}>← Back to Home</Link>
+          <a href="#" onClick={handleBack} style={homeLinkStyle}>← Back</a>
           {!isMobile && <img src={myLogo} alt="Logo" style={logoStyle} />}
 
           <h2 style={{ textAlign: 'center', color: 'var(--maroon)', marginBottom: '6px', fontSize: isMobile ? '1.35rem' : '1.6rem', fontWeight: '800' }}>
@@ -126,6 +156,22 @@ export default function Login() {
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
+
+          {needsVerification && (
+            <div style={{ marginTop: '14px', padding: '12px 14px', background: '#FEF7E6', border: '1px solid #F5C97A', borderRadius: '10px' }}>
+              <p style={{ margin: 0, color: '#7a4f00', fontSize: '0.9rem' }}>
+                Didn’t get the confirmation email?
+              </p>
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resending}
+                style={{ marginTop: '8px', background: 'var(--green)', color: 'white', border: 'none', padding: '8px 14px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
+              >
+                {resending ? 'Sending...' : 'Resend verification email'}
+              </button>
+            </div>
+          )}
 
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
             <p style={{ color: '#64748b', fontSize: isMobile ? '0.85rem' : '0.9rem' }}>
