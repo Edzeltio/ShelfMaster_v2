@@ -1,13 +1,14 @@
 # ShelfMaster
 
-A web-based library management system (LMS) built with React + Vite, Express.js, and MySQL/MariaDB for local XAMPP/phpMyAdmin usage.
+A web-based library management system (LMS) built with React + Vite, an Express.js API, and a Supabase (PostgreSQL) database.
 
 ## Tech Stack
 
 - **Frontend:** React 19, React Router DOM v7
 - **Build Tool:** Vite 8 served through an Express server on port 5000
-- **Backend/Database:** Express.js API with MySQL/MariaDB via `mysql2`
-- **Local Database Target:** XAMPP MySQL/MariaDB, default database `shelfmaster`
+- **Backend:** Express.js API (`server.js`)
+- **Database:** Supabase (PostgreSQL) via `@supabase/supabase-js`
+- **Auth:** JWT + bcrypt issued by the Express server (Supabase Auth is **not** used; the `auth_users` table holds email + bcrypt hash)
 - **Charts:** Recharts
 - **Barcodes:** react-barcode, jsbarcode
 - **PDF:** jsPDF + jspdf-autotable
@@ -15,72 +16,81 @@ A web-based library management system (LMS) built with React + Vite, Express.js,
 
 ## Project Structure
 
-- `server.js` — Express server that hosts the Vite app, creates MySQL tables, handles auth, uploads, and database API calls
-- `electron/main.cjs` — Electron main process: spawns the Express server, opens a BrowserWindow on `http://127.0.0.1:5000`, handles graceful shutdown
-- `electron/preload.cjs` — Electron preload script (exposes `window.shelfmaster`)
-- `xampp_schema.sql` — Optional phpMyAdmin import file for manually creating the local MySQL schema
-- `src/` — All React source files (flat layout)
-  - `main.jsx` — Entry point
-  - `App.jsx` — Routing (public, `/student/*`, `/librarian/*`)
-  - `localDbClient.js` — Browser client for Express/MySQL `.from()` queries, auth, and uploads
-  - `localDbAdmin.js` — Shared local database client export used by librarian/admin screens
-  - `BarcodeLabel.jsx` — Barcode label component + helpers (`generateBarcode`, `generateCopyAccessionId`)
-  - `Inventory.jsx` — Physical book & eBook management with per-copy system; archive and eBook saves call server endpoints
-  - `ProcessReturns.jsx` — Barcode scan to return a specific copy
-  - `PendingRequests.jsx` — Approve/decline borrow requests, assigns specific copies
-  - `BorrowingHistory.jsx` — Full transaction log with copy accession IDs
-  - `StudentBooks.jsx` — Student view of active loans (shows copy accession ID)
-  - `StudentCatalog.jsx` — Public book catalog with borrow request
-- `public/` — Static assets
+- `server.js` — Express server. Hosts Vite in development (and the built `dist` in production), proxies database requests to Supabase, handles auth (JWT + bcrypt), uploads, and a few librarian-only endpoints.
+- `supabase_schema.sql` — One-time schema to paste into Supabase → SQL Editor.
+- `electron/main.cjs` — Electron main process (spawns the Express server).
+- `electron/preload.cjs` — Electron preload (exposes `window.shelfmaster`).
+- `src/` — React source (flat layout)
+  - `localDbClient.js` — Browser client mimicking the Supabase API; routes calls through the Express server.
+  - `localDbAdmin.js` — Re-export used by librarian/admin screens.
+  - …feature components (Inventory, ProcessReturns, PendingRequests, etc.)
+- `public/` — Static assets, including `public/uploads/` for cover images and other uploads.
 
-## Local XAMPP Database Configuration
+## Required Environment Variables
 
-Default local MySQL settings match a standard XAMPP install:
-- `DB_HOST=127.0.0.1`
-- `DB_PORT=3306`
-- `DB_USER=root`
-- `DB_PASSWORD=`
-- `DB_NAME=shelfmaster`
-- `JWT_SECRET=shelfmaster-local-dev-secret`
+| Name | Where | Purpose |
+| --- | --- | --- |
+| `SUPABASE_URL` | Replit Secrets | Your Supabase project URL (e.g. `https://xxxx.supabase.co`). |
+| `SUPABASE_SERVICE_ROLE_KEY` | Replit Secrets | Service-role key from Supabase → Settings → API. **Server-only** — never sent to the browser. |
+| `JWT_SECRET` *(optional)* | Replit Secrets | Override the dev JWT secret. Defaults to `shelfmaster-local-dev-secret`. |
+| `PORT` *(optional)* | env | Defaults to `5000`. |
 
-`server.js` loads `.env` automatically if present. If no `.env` is provided, it uses the XAMPP defaults above. The server creates the `shelfmaster` database and tables automatically when XAMPP MySQL is running.
+`server.js` loads `.env` automatically if present, but on Replit these come from Secrets.
 
-The optional `xampp_schema.sql` file can also be imported through phpMyAdmin. The first account registered through the app is automatically made a librarian so a new local database can be administered immediately.
+## One-Time Supabase Setup
 
-## Database Schema
+1. Open your Supabase project → **SQL Editor → New query**.
+2. Paste the contents of [`supabase_schema.sql`](./supabase_schema.sql).
+3. Click **Run**. The script is idempotent — safe to run again later.
+4. Restart the workflow. The server log should print `[db] Supabase reachable at <your URL>`.
 
-### books
-Core book title record. `quantity` = number of currently available copies.
+The first user account that registers through the app is automatically promoted to **librarian**, so a fresh database is administrable immediately.
 
-### book_copies *(requires one-time migration)*
-One row per physical copy. This is what gets scanned.
-- `id`, `book_id` (FK→books), `copy_number`, `accession_id` (e.g. `LIB-2026-000001`), `status` (available/borrowed/damaged/lost), `date_acquired`
+## Database Schema (created by `supabase_schema.sql`)
 
-### transactions
-- `id`, `user_id` (FK→users), `book_id` (FK→books), `copy_id` (FK→book_copies, nullable), `status`, `borrow_date`, `due_date`, `return_date`
+### `auth_users`
+`id`, `email` (unique), `password_hash` (bcrypt), `created_at`. Used by the Express server's JWT auth.
 
-The MySQL schema is created automatically by `server.js`. For manual setup, import `xampp_schema.sql` in phpMyAdmin.
+### `users`
+Application profiles. `id`, `auth_id`, `name`, `student_id`, `course_year`, `role` (`student` / `librarian`), `status`, `created_at`.
+
+### `books`
+Title-level book record. `quantity` = number of currently available copies.
+
+### `book_copies`
+One row per physical copy.
+`id`, `book_id` (FK→books, cascade), `copy_number`, `accession_id` (e.g. `LIB-2026-000001`, unique), `status` (available/borrowed/damaged/lost), `date_acquired`.
+
+### `transactions`
+`id`, `user_id`, `book_id`, `copy_id`, `status`, `borrow_date`, `due_date`, `return_date`, plus walk-in borrower columns (`walk_in_*`).
+
+### `site_content`
+Single-row (`id = 1`) site configuration: hero banner, tagline, about/mission/vision, contact info, footer.
 
 ## Per-Copy Barcode System
 
-- **Accession ID format:** `LIB-YYYY-NNNNNN` (6-digit global counter, e.g. `LIB-2026-000001`)
-- Adding a book with qty=5 auto-generates 5 copies with sequential accession IDs
-- Each copy's barcode label is printed separately (Code 128)
-- **Borrow:** Librarian approves → system assigns the next available copy → links `copy_id` to the transaction
-- **Return:** Staff scans copy barcode → exact copy found → marked available → student's loan closed
-- Inventory page shows expandable copies panel per book title
+- **Accession ID format:** `LIB-YYYY-NNNNNN` (6-digit global counter, e.g. `LIB-2026-000001`).
+- Adding a book with qty=5 auto-generates 5 copies with sequential accession IDs.
+- Each copy's barcode label is printed separately (Code 128).
+- **Borrow:** Librarian approves → system assigns the next available copy → links `copy_id` to the transaction.
+- **Return:** Staff scans copy barcode → exact copy found → marked available → student's loan closed.
 
-## Replit Migration Notes
+## API Surface
 
-- `.replit` runs `npm run dev` on port 5000; that script now starts `server.js`, which serves Vite in development and the built `dist` files in production.
-- The app uses Express.js and XAMPP MySQL/MariaDB only for its database layer.
-- The archive action uses `/api/books/:id/archive` and eBook saves use `/api/ebooks`; the server verifies the requester is a librarian using JWT auth.
-- Inventory save payloads clean blank numeric fields before writing to MySQL to avoid numeric type errors.
-- File uploads are saved under `public/uploads/` and served from `/uploads/...`.
+- `POST /api/auth/signup`, `POST /api/auth/login`, `GET /api/auth/user`
+- `POST /api/db/query` — Generic table query proxy used by `localDbClient.js`. Supports `select`, `insert`, `update` against the allow-listed tables (`users`, `books`, `book_copies`, `transactions`, `site_content`). The `select` string is passed straight through to PostgREST, so Supabase relation syntax like `'*, books(*), users(*)'` works.
+- `POST /api/books/:id/archive`, `POST /api/books/:id/unarchive`, `DELETE /api/books/:id` *(librarian-only)*
+- `POST /api/ebooks`, `PATCH /api/ebooks/:id` *(librarian-only)*
+- `POST /api/storage/upload` *(librarian-only)* — saves files under `public/uploads/`, served at `/uploads/...`
+- `GET /api/health`, `GET /api/test`, `GET /api/lan-info`
+
+Librarian-only endpoints verify the caller's role by joining the JWT subject (`auth_id`) to the `users` table.
 
 ## Development
 
 ```bash
 npm install
-npm run dev   # with XAMPP MySQL running, starts on port 5000
+npm run dev   # starts Express + Vite on port 5000
 ```
+
+The Replit workflow `Start application` runs `cd Shelfmaster && npm run dev` and exposes port 5000 in the webview.

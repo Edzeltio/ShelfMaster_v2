@@ -53,11 +53,12 @@
     "asar": true,
     "asarUnpack": [
       "server.js",
-      "node_modules/mysql2/**/*",
+      "node_modules/@supabase/**/*",
       "node_modules/bcryptjs/**/*"
     ]
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.105.1",
     "@zxing/browser": "^0.1.5",
     "@zxing/library": "^0.21.3",
     "bcryptjs": "^3.0.3",
@@ -67,7 +68,6 @@
     "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
-    "mysql2": "^3.22.2",
     "react": "^19.2.5",
     "react-barcode": "^1.6.1",
     "react-dom": "^19.2.5",
