@@ -21,12 +21,25 @@
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-body {
+html, body {
   margin: 0;
   padding: 0;
   background-color: var(--bg-main);
   color: var(--text-main);
   -webkit-font-smoothing: antialiased;
+  /* Prevent any single child from causing horizontal page scroll */
+  overflow-x: hidden;
+  width: 100%;
+}
+
+img, video, canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+input, select, textarea, button {
+  font: inherit;
+  max-width: 100%;
 }
 
 /* ==========================================
@@ -42,6 +55,7 @@ body {
   border: none;
   cursor: pointer;
   transition: background-color 0.2s, transform 0.1s;
+  white-space: nowrap;
 }
 
 .connection-settings{
@@ -73,6 +87,8 @@ body {
   position: sticky;
   top: 0;
   z-index: 1000;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .logo-container {
@@ -80,6 +96,7 @@ body {
   align-items: center;
   gap: 15px;
   text-decoration: none;
+  min-width: 0;
 }
 
 .logo-text {
@@ -93,6 +110,7 @@ body {
   display: flex;
   align-items: center;
   gap: 30px;
+  flex-wrap: wrap;
 }
 
 .nav-link {
@@ -114,10 +132,12 @@ body {
   align-items: center;
   color: white;
   position: relative;
+  flex-wrap: wrap;
+  gap: 2rem;
 }
 
 .hero-content h1 {
-  font-size: 3.5rem;
+  font-size: clamp(2rem, 5.5vw, 3.5rem);
   margin-bottom: 2rem;
   max-width: 500px;
   line-height: 1.2;
@@ -168,6 +188,7 @@ body {
   padding: 6px 6px 6px 20px;
   gap: 10px;
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  flex-wrap: wrap;
 }
 
 .search-container:focus-within {
@@ -254,14 +275,14 @@ body {
 .section-title {
   text-align: center;
   color: var(--maroon);
-  font-size: 2.2rem;
+  font-size: clamp(1.5rem, 4vw, 2.2rem);
   margin-bottom: 3rem;
 }
 
 /* Grids */
 .category-grid, .features-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: 25px;
 }
 
@@ -301,6 +322,7 @@ body {
   background: white;
   border-radius: 12px;
   box-shadow: 0 4px 10px rgba(0,0,0,0.02);
+  flex-wrap: wrap;
 }
 
 /* About Section */
@@ -448,6 +470,8 @@ body {
   position: sticky;
   top: 0;
   height: 100vh;
+  flex-shrink: 0;
+  transition: transform 0.25s ease;
 }
 
 .sidebar-header {
@@ -456,10 +480,10 @@ body {
   border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 
-.sidebar-header img { 
-  width: 60px; 
-  border-radius: 50%; 
-  margin-bottom: 10px; 
+.sidebar-header img {
+  width: 60px;
+  border-radius: 50%;
+  margin-bottom: 10px;
 }
 
 .sidebar-nav {
@@ -468,6 +492,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  overflow-y: auto;
 }
 
 .sidebar-link {
@@ -502,21 +527,120 @@ body {
   transition: background 0.2s;
 }
 
-.btn-logout:hover { 
-  background-color: #dc2626; 
+.btn-logout:hover {
+  background-color: #dc2626;
 }
 
 .admin-content {
   flex: 1;
   padding: 2.5rem 3rem;
   overflow-y: auto;
+  min-width: 0;       /* allow children to shrink instead of overflowing */
+  max-width: 100%;
 }
 
-/* Responsive adjustments */
+/* Mobile sidebar — hamburger + slide-in drawer */
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 1100;
+  background: var(--maroon);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  width: 44px;
+  height: 44px;
+  font-size: 22px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 1050;
+}
+
+/* ==========================================
+   6. RESPONSIVE BREAKPOINTS
+   ========================================== */
+
+/* Tablet (≤1024px): tighten admin padding, smaller sidebar */
+@media (max-width: 1024px) {
+  .admin-content { padding: 1.75rem 1.5rem; }
+  .sidebar { width: 220px; }
+  .section-wrapper { padding: 3rem 5%; }
+  .hero-section { padding: 3rem 5%; }
+  .footer { grid-template-columns: 1fr 1fr; }
+}
+
+/* Mobile (≤768px) */
 @media (max-width: 768px) {
-  .about-section { grid-template-columns: 1fr; gap: 3rem; }
-  .footer { grid-template-columns: 1fr; }
-  .login-split-card { flex-direction: column; }
+  .navbar { padding: 0.75rem 4%; }
+  .nav-links { gap: 14px; }
+  .logo-text { font-size: 1.2rem; }
+
+  .hero-section { flex-direction: column; align-items: flex-start; padding: 3rem 5%; }
+  .about-section { grid-template-columns: 1fr; gap: 3rem; padding: 3rem 5%; }
+  .footer { grid-template-columns: 1fr; padding: 2.5rem 5% 1.5rem; gap: 25px; }
+  .contact-block { flex-direction: column; gap: 18px; padding: 1.25rem; text-align: left; }
+  .login-split-card { flex-direction: column; min-height: 0; }
+  .login-left, .login-right { padding: 2rem 1.5rem; }
+  .login-wrapper { padding: 1rem; }
+  .search-section { padding: 32px 5%; }
+  .search-container { padding: 6px 6px 6px 14px; }
+
+  /* Sidebar becomes a slide-in drawer */
   .admin-layout { flex-direction: column; }
-  .sidebar { width: 100%; height: auto; position: static; }
+  .admin-content { padding: 5rem 1rem 1.5rem; }
+  .sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 78%;
+    max-width: 280px;
+    height: 100vh;
+    z-index: 1080;
+    transform: translateX(-100%);
+  }
+  .admin-layout.sidebar-open .sidebar { transform: translateX(0); }
+  .admin-layout.sidebar-open .sidebar-overlay { display: block; }
+
+  /* Make admin tables horizontally scrollable inside their cards */
+  .admin-content table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .admin-content table thead,
+  .admin-content table tbody,
+  .admin-content table tr {
+    display: table;
+    width: 100%;
+    table-layout: auto;
+  }
+  .admin-content table th,
+  .admin-content table td {
+    white-space: nowrap;
+  }
+}
+
+/* Extra-small phones (≤480px) */
+@media (max-width: 480px) {
+  .navbar { padding: 0.6rem 12px; }
+  .nav-links { gap: 10px; }
+  .btn-sign-in { padding: 8px 14px; font-size: 0.85rem; }
+  .connection-settings { padding: 6px; }
+  .section-wrapper { padding: 2.25rem 5%; }
+  .login-left, .login-right { padding: 1.5rem 1.2rem; }
+  .input-group input { padding: 12px 12px 12px 40px; font-size: 0.95rem; }
+  .btn-submit { padding: 12px; font-size: 1rem; }
+  .admin-content { padding: 4.5rem 0.75rem 1rem; }
 }

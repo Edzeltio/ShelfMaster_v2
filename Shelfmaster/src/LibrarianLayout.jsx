@@ -8,8 +8,12 @@ export default function LibrarianLayout() {
   const location = useLocation();
   const [pendingCount, setPendingCount] = useState(0);
   const [authChecked, setAuthChecked] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const prevCountRef = useRef(0);
   const notifPermission = useRef(Notification.permission);
+
+  // Auto-close the mobile drawer whenever the route changes
+  useEffect(() => { setSidebarOpen(false); }, [location.pathname]);
 
   // Guard: verify session and librarian role before rendering
   useEffect(() => {
@@ -102,7 +106,24 @@ export default function LibrarianLayout() {
   }
 
   return (
-    <div className="admin-layout">
+    <div className={`admin-layout${sidebarOpen ? ' sidebar-open' : ''}`}>
+
+      {/* Mobile hamburger — only visible on small screens via CSS */}
+      <button
+        type="button"
+        className="sidebar-toggle"
+        aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+        onClick={() => setSidebarOpen(o => !o)}
+      >
+        {sidebarOpen ? '✕' : '☰'}
+      </button>
+
+      {/* Dim overlay behind the open drawer */}
+      <div
+        className="sidebar-overlay"
+        onClick={() => setSidebarOpen(false)}
+        aria-hidden="true"
+      />
 
       {/* SIDEBAR */}
       <aside className="sidebar">

@@ -86,6 +86,16 @@ Single-row (`id = 1`) site configuration: hero banner, tagline, about/mission/vi
 
 Librarian-only endpoints verify the caller's role by joining the JWT subject (`auth_id`) to the `users` table.
 
+## Responsive Design
+
+The app is designed to work across phones, tablets, and desktops:
+
+- **Public navbar / hero / about / footer / contact / search** — declared in `src/index.css` with `flex-wrap`, `clamp()` font sizes, and explicit `@media (max-width: 1024px / 768px / 480px)` breakpoints that stack columns and tighten padding on smaller screens.
+- **Public Home, Login, Signup, Student pages** — use the `useResponsive()` hook (`src/useResponsive.js`) to switch grid columns, paddings, and font sizes between mobile/tablet/desktop.
+- **Student navbar** — collapses to a hamburger drawer on mobile (`src/StudentNavbar.jsx`).
+- **Librarian portal** — the sidebar in `src/LibrarianLayout.jsx` becomes a slide-in drawer on mobile, controlled by a fixed hamburger button (`.sidebar-toggle`) and a click-away overlay (`.sidebar-overlay`). The drawer auto-closes on route changes.
+- **Librarian tables** (Inventory, BorrowingHistory, PendingRequests, etc.) — gain horizontal scrolling inside their card containers on `max-width: 768px` via global rules on `.admin-content table`.
+
 ## Development
 
 ```bash
