@@ -41,14 +41,12 @@ export default function StudentHome() {
 
   async function fetchPopularBooks() {
     setPopularLoading(true);
-    // Pull all borrow/return transactions and count per book_id
     const { data: txns } = await localDbAdmin
       .from('transactions')
       .select('book_id')
       .in('status', ['borrowed', 'returned']);
 
     if (!txns || txns.length === 0) {
-      // Fallback: show recently added books
       const { data: recent } = await localDbAdmin
         .from('books')
         .select('id, title, authors, cover_image, quantity, category, subject_class, book_type')
@@ -61,13 +59,11 @@ export default function StudentHome() {
       return;
     }
 
-    // Count borrows per book
     const countMap = {};
     for (const { book_id } of txns) {
       if (book_id) countMap[book_id] = (countMap[book_id] || 0) + 1;
     }
 
-    // Sort by count, take top 8 IDs
     const topIds = Object.entries(countMap)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
@@ -80,7 +76,6 @@ export default function StudentHome() {
       .neq('status', 'archived')
       .neq('book_type', 'eBook');
 
-    // Re-sort to match popularity order and attach count
     const sorted = topIds
       .map(id => {
         const book = (books || []).find(b => b.id === id);
@@ -116,33 +111,58 @@ export default function StudentHome() {
 
       {/* Stat Cards */}
       <div style={{ maxWidth: '1200px', margin: isMobile ? '-30px auto 0' : '-40px auto 0', padding: isMobile ? '0 16px 24px' : '0 20px 48px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: '16px' }}>
-          <StatCard
-            title="Active Loans"
-            value={stats.loans}
-            linkText="View Due Dates"
-            color="var(--green)"
-            onClick={() => navigate('/student/books')}
-            isMobile={isMobile}
-          />
-          <StatCard
-            title="Pending Requests"
-            value={stats.pending}
-            linkText="Check Status"
-            color="var(--yellow)"
-            textColor="var(--maroon)"
-            onClick={() => navigate('/student/books')}
-            isMobile={isMobile}
-          />
-          <StatCard
-            title="Account"
-            value="Profile Verified ✅"
-            linkText="Update My Info"
-            color="var(--maroon)"
-            onClick={() => navigate('/student/profile')}
-            isMobile={isMobile}
-          />
-        </div>
+        {isMobile ? (
+          /* Mobile: horizontal scroll strip */
+          <div style={{
+            display: 'flex', gap: '12px',
+            overflowX: 'auto', paddingBottom: '8px',
+            WebkitOverflowScrolling: 'touch',
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+          }}>
+            <style>{`.stat-scroll::-webkit-scrollbar { display: none; }`}</style>
+            <StatCard
+              title="Active Loans" value={stats.loans}
+              linkText="View Due Dates" color="var(--green)"
+              onClick={() => navigate('/student/books')}
+              isMobile={isMobile} compact
+            />
+            <StatCard
+              title="Pending" value={stats.pending}
+              linkText="Check Status" color="var(--yellow)" textColor="var(--maroon)"
+              onClick={() => navigate('/student/books')}
+              isMobile={isMobile} compact
+            />
+            <StatCard
+              title="Account" value="Verified ✅"
+              linkText="Update Info" color="var(--maroon)"
+              onClick={() => navigate('/student/profile')}
+              isMobile={isMobile} compact
+            />
+          </div>
+        ) : (
+          /* Tablet / Desktop: original grid */
+          <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: '16px' }}>
+            <StatCard
+              title="Active Loans" value={stats.loans}
+              linkText="View Due Dates" color="var(--green)"
+              onClick={() => navigate('/student/books')}
+              isMobile={isMobile}
+            />
+            <StatCard
+              title="Pending Requests" value={stats.pending}
+              linkText="Check Status" color="var(--yellow)" textColor="var(--maroon)"
+              onClick={() => navigate('/student/books')}
+              isMobile={isMobile}
+            />
+            <StatCard
+              title="Account" value="Profile Verified ✅"
+              linkText="Update My Info" color="var(--maroon)"
+              onClick={() => navigate('/student/profile')}
+              isMobile={isMobile}
+            />
+          </div>
+        )}
       </div>
 
       {/* Most Popular Books */}
@@ -192,7 +212,7 @@ export default function StudentHome() {
                   onClick={() => handleBorrow(book)}
                 >
                   {/* Cover */}
-                  <div style={{ position: 'relative', height: '160px', background: '#f1f5f9', flexShrink: 0 }}>
+                  <div style={{ position: 'relative', height: isMobile ? '130px' : '160px', background: '#f1f5f9', flexShrink: 0 }}>
                     {/* Rank badge */}
                     <div style={{
                       position: 'absolute', top: '8px', left: '8px', zIndex: 2,
@@ -232,33 +252,35 @@ export default function StudentHome() {
                       color: 'white', fontSize: '0.65rem', fontWeight: 700,
                       padding: '2px 7px', borderRadius: '20px'
                     }}>
-                      {isAvailable ? 'Available' : 'Out of stock'}
+                      {isAvailable ? 'Available' : 'Out'}
                     </div>
                   </div>
 
                   {/* Info */}
-                  <div style={{ padding: '12px 12px 14px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <p style={{ margin: '0 0 3px 0', fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', lineHeight: 1.3,
+                  <div style={{ padding: isMobile ? '10px 10px 12px' : '12px 12px 14px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <p style={{ margin: '0 0 3px 0', fontWeight: 700, fontSize: isMobile ? '0.78rem' : '0.88rem', color: '#1e293b', lineHeight: 1.3,
                       display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       {book.title}
                     </p>
-                    <p style={{ margin: '0 0 10px 0', fontSize: '0.75rem', color: '#64748b',
+                    <p style={{ margin: '0 0 10px 0', fontSize: isMobile ? '0.68rem' : '0.75rem', color: '#64748b',
                       overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
                       {book.authors || 'Unknown'}
                     </p>
                     <div style={{ marginTop: 'auto' }}>
-                      <span style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '8px' }}>
-                        📚 {book.borrow_count} {book.borrow_count === 1 ? 'borrow' : 'borrows'}
-                      </span>
+                      {!isMobile && (
+                        <span style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '8px' }}>
+                          📚 {book.borrow_count} {book.borrow_count === 1 ? 'borrow' : 'borrows'}
+                        </span>
+                      )}
                       <button
                         onClick={(e) => { e.stopPropagation(); handleBorrow(book); }}
                         disabled={!isAvailable}
                         style={{
-                          width: '100%', padding: '7px 0',
+                          width: '100%', padding: isMobile ? '6px 0' : '7px 0',
                           background: isAvailable ? 'var(--green)' : '#e2e8f0',
                           color: isAvailable ? 'white' : '#94a3b8',
                           border: 'none', borderRadius: '7px',
-                          fontWeight: 700, fontSize: '0.8rem',
+                          fontWeight: 700, fontSize: isMobile ? '0.72rem' : '0.8rem',
                           cursor: isAvailable ? 'pointer' : 'not-allowed',
                         }}
                       >
@@ -276,7 +298,35 @@ export default function StudentHome() {
   );
 }
 
-function StatCard({ title, value, linkText, color, textColor, onClick, isMobile }) {
+function StatCard({ title, value, linkText, color, textColor, onClick, isMobile, compact }) {
+  if (compact) {
+    // Mobile compact card for horizontal scroll
+    return (
+      <div
+        onClick={onClick}
+        style={{
+          background: 'white',
+          padding: '16px 18px',
+          borderRadius: '12px',
+          boxShadow: '0 4px 15px rgba(0,0,0,0.05)',
+          borderLeft: `4px solid ${color}`,
+          minWidth: '140px',
+          flexShrink: 0,
+          cursor: 'pointer',
+        }}
+      >
+        <h4 style={{ color: '#64748b', textTransform: 'uppercase', fontSize: '0.68rem', margin: '0 0 6px 0', letterSpacing: '0.04em' }}>{title}</h4>
+        <p style={{ fontSize: '1.3rem', fontWeight: 'bold', margin: '0 0 10px 0', color: '#1e293b' }}>{value}</p>
+        <button
+          onClick={onClick}
+          style={{ background: 'none', border: 'none', padding: 0, color: textColor || color, fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer' }}
+        >
+          {linkText} →
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: 'white', padding: isMobile ? '20px' : '25px', borderRadius: '15px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', borderLeft: `5px solid ${color}` }}>
       <h4 style={{ color: '#64748b', textTransform: 'uppercase', fontSize: isMobile ? '0.75rem' : '0.8rem', margin: '0 0 10px 0' }}>{title}</h4>

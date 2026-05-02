@@ -5,24 +5,25 @@ import { localDbAdmin } from './localDbAdmin';
 import { useResponsive } from './useResponsive';
 
 const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=DM+Sans:wght@300;400;500;600&display=swap');
-
   :root {
     --maroon:      #7B1F1F;
     --maroon-deep: #5A1515;
     --maroon-soft: #9B3A3A;
-    --cream:       #FDF8F3;
-    --cream-dark:  #F0E9DF;
-    --yellow:      #E8B84B;
-    --yellow-soft: #FBF0D3;
-    --green:       #3A7D44;
-    --green-soft:  #EAF4EC;
-    --slate:       #64748B;
-    --ink:         #1C1917;
-    --shadow-sm:   0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
-    --shadow-md:   0 4px 16px rgba(0,0,0,.10);
-    --shadow-lg:   0 12px 40px rgba(0,0,0,.14);
-    --ff-display:  'Playfair Display', Georgia, serif;
+    --cream:       #FDF8F2;
+    --cream-dark:  #F2EAE0;
+    --yellow:      #D4A843;
+    --yellow-soft: #FBF4E3;
+    --green:       #3D7A48;
+    --green-soft:  #EBF5ED;
+    --slate:       #7A6A62;
+    --ink:         #18120F;
+    --text-muted:  #7A6A62;
+    --text-faint:  #B8A89E;
+    --border:      #E8DDD5;
+    --shadow-sm:   0 2px 10px rgba(90,21,21,.09);
+    --shadow-md:   0 6px 28px rgba(90,21,21,.11);
+    --shadow-lg:   0 16px 52px rgba(90,21,21,.13);
+    --ff-display:  'Cormorant Garamond', Georgia, serif;
     --ff-body:     'DM Sans', system-ui, sans-serif;
   }
 
@@ -79,9 +80,9 @@ const STYLES = `
 `;
 
 const FEATURED_CATEGORIES = [
-  { label: 'General Reference',      icon: '📚', bg: '#F0E9DF' },
-  { label: 'Academic & Textbooks',   icon: '🎓', bg: '#EAF4EC' },
-  { label: 'Thesis & Dissertations', icon: '📜', bg: '#FBF0D3' },
+  { label: 'General Reference',      icon: '📚', bg: 'var(--cream-dark)' },
+  { label: 'Academic & Textbooks',   icon: '🎓', bg: 'var(--green-soft)' },
+  { label: 'Thesis & Dissertations', icon: '📜', bg: 'var(--yellow-soft)' },
   { label: 'Fiction & Literature',   icon: '✦',  bg: '#FEF2F2' },
   { label: 'Special Collections',    icon: '🏛',  bg: '#EFF6FF' },
 ];
@@ -174,7 +175,7 @@ export default function Home() {
           className="hero-pattern hero-wave"
           style={{
             position: 'relative',
-            background: '#5A1515',
+            background: 'var(--maroon-deep)',
             overflow: 'hidden',
           }}
         >
@@ -202,7 +203,7 @@ export default function Home() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="fade-up" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
-                bbackground: 'transparent', border: '1.5px solid rgba(255,255,255,.4)',
+                background: 'transparent', border: '1.5px solid rgba(255,255,255,.4)',
                 color: 'white', borderRadius: 100,
                 padding: '5px 14px', marginBottom: 20,
                 fontSize: isMobile ? '.75rem' : '.8rem',
@@ -213,7 +214,7 @@ export default function Home() {
               </div>
 
               <h1 className="fade-up fade-up-1" style={{
-                fontFamily: "'Playfair Display', Georgia, serif",
+                fontFamily: 'var(--ff-display)',
                 fontSize: isMobile ? '2.5rem' : isTablet ? '3.2rem' : '4rem',
                 fontWeight: 900, lineHeight: 1.1,
                 margin: '0 0 20px', color: 'white', letterSpacing: '-.01em',
@@ -234,7 +235,7 @@ export default function Home() {
                   display: 'inline-block',
                   padding: isMobile ? '13px 26px' : '15px 34px',
                   fontSize: isMobile ? '.9rem' : '.95rem',
-                  background: '#E8B84B', color: '#5A1515',
+                  background: 'var(--yellow)', color: 'var(--maroon-deep)',
                   textDecoration: 'none', borderRadius: 10,
                   fontWeight: 700, letterSpacing: '.01em',
                 }}>
@@ -251,7 +252,7 @@ export default function Home() {
                     border: '1.5px solid rgba(255,255,255,.4)',
                     borderRadius: 10, fontWeight: 600,
                     cursor: 'pointer', letterSpacing: '.01em',
-                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                    fontFamily: 'var(--ff-body)',
                   }}
                 >
                   Browse Collection
@@ -273,7 +274,7 @@ export default function Home() {
                         <div style={{
                           fontSize: isMobile ? '1.5rem' : '1.9rem',
                           fontWeight: 800,
-                          fontFamily: "'Playfair Display', Georgia, serif",
+                          fontFamily: 'var(--ff-display)',
                           color: 'white', lineHeight: 1,
                         }}>
                           {s.value.toLocaleString()}
@@ -315,15 +316,15 @@ export default function Home() {
 
         {/* ══ SEARCH ══ */}
         <section style={{
-          background: '#FDF8F3',
+          background: 'var(--cream)',
           padding: isMobile ? '32px 16px 24px' : isTablet ? '40px 28px 28px' : '48px 48px 32px',
         }}>
           <div style={{ maxWidth: 860, margin: '0 auto' }}>
             <p style={{
               textAlign: 'center',
-              fontFamily: "'Playfair Display', Georgia, serif",
+              fontFamily: 'var(--ff-display)',
               fontSize: isMobile ? '.8rem' : '.85rem',
-              color: '#7B1F1F', fontWeight: 600,
+              color: 'var(--maroon)', fontWeight: 600,
               letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 14,
             }}>
               Search the Collection
@@ -356,8 +357,8 @@ export default function Home() {
                 style={{
                   flex: 1, border: 'none', outline: 'none',
                   fontSize: isMobile ? '.9rem' : '1rem',
-                  color: '#1C1917', background: 'transparent',
-                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                  color: 'var(--ink)', background: 'transparent',
+                  fontFamily: 'var(--ff-body)',
                 }}
               />
 
@@ -377,12 +378,12 @@ export default function Home() {
               )}
 
               <button type="submit" style={{
-                background: '#7B1F1F', color: 'white', border: 'none',
+                background: 'var(--maroon)', color: 'white', border: 'none',
                 padding: isMobile ? '8px 14px' : '10px 20px', borderRadius: 8,
                 cursor: 'pointer', fontWeight: 700,
                 fontSize: isMobile ? '.82rem' : '.88rem',
                 flexShrink: 0,
-                fontFamily: "'DM Sans', system-ui, sans-serif",
+                fontFamily: 'var(--ff-body)',
                 letterSpacing: '.02em',
               }}>
                 Search
@@ -397,14 +398,14 @@ export default function Home() {
                   className="chip"
                   onClick={() => handleChipClick(tag)}
                   style={{
-                    background: searchTerm === tag ? '#7B1F1F' : 'white',
-                    color: searchTerm === tag ? 'white' : '#64748B',
+                    background: searchTerm === tag ? 'var(--maroon)' : 'white',
+                    color: searchTerm === tag ? 'white' : 'var(--text-muted)',
                     border: searchTerm === tag ? '1.5px solid #7B1F1F' : '1.5px solid #F0E9DF',
                     padding: isMobile ? '6px 13px' : '7px 16px',
                     borderRadius: 100, cursor: 'pointer',
                     fontSize: isMobile ? '.78rem' : '.82rem',
                     fontWeight: 600,
-                    fontFamily: "'DM Sans', system-ui, sans-serif",
+                    fontFamily: 'var(--ff-body)',
                   }}
                 >
                   {tag}
@@ -428,15 +429,15 @@ export default function Home() {
           }}>
             <div>
               <h2 style={{
-                fontFamily: "'Playfair Display', Georgia, serif",
+                fontFamily: 'var(--ff-display)',
                 margin: 0,
                 fontSize: isMobile ? '1.5rem' : isTablet ? '1.9rem' : '2.3rem',
-                color: '#7B1F1F', fontWeight: 700, lineHeight: 1.15,
+                color: 'var(--maroon)', fontWeight: 700, lineHeight: 1.15,
               }}>
                 {searchTerm ? ('Results for "' + searchTerm + '"') : 'Browse Our Collection'}
               </h2>
               {!booksLoading && (
-                <p style={{ color: '#64748B', margin: '5px 0 0', fontSize: isMobile ? '.8rem' : '.88rem' }}>
+                <p style={{ color: 'var(--text-muted)', margin: '5px 0 0', fontSize: isMobile ? '.8rem' : '.88rem' }}>
                   {filteredBooks.length} {filteredBooks.length === 1 ? 'book' : 'books'} found
                   {searchTerm && (
                     <React.Fragment>
@@ -444,9 +445,9 @@ export default function Home() {
                       <button
                         onClick={() => setSearchTerm('')}
                         style={{
-                          background: 'none', border: 'none', color: '#7B1F1F',
+                          background: 'none', border: 'none', color: 'var(--maroon)',
                           cursor: 'pointer', fontWeight: 700, padding: 0,
-                          fontFamily: "'DM Sans', system-ui, sans-serif",
+                          fontFamily: 'var(--ff-body)',
                           fontSize: 'inherit',
                         }}
                       >
@@ -458,7 +459,7 @@ export default function Home() {
               )}
             </div>
             <Link to="/login" style={{
-              background: '#7B1F1F', color: 'white',
+              background: 'var(--maroon)', color: 'white',
               padding: isMobile ? '10px 18px' : '12px 22px',
               borderRadius: 10, textDecoration: 'none', fontWeight: 700,
               fontSize: isMobile ? '.82rem' : '.88rem', whiteSpace: 'nowrap',
@@ -480,22 +481,22 @@ export default function Home() {
             <div style={{ textAlign: 'center', padding: isMobile ? '50px 20px' : '80px 20px' }}>
               <div style={{ fontSize: '3.5rem', marginBottom: 14 }}>📭</div>
               <p style={{
-                fontFamily: "'Playfair Display', Georgia, serif",
+                fontFamily: 'var(--ff-display)',
                 fontSize: isMobile ? '1.2rem' : '1.4rem',
-                fontWeight: 700, color: '#7B1F1F', margin: '0 0 8px',
+                fontWeight: 700, color: 'var(--maroon)', margin: '0 0 8px',
               }}>
                 No books matched &quot;{searchTerm}&quot;
               </p>
-              <p style={{ color: '#64748B', fontSize: isMobile ? '.85rem' : '.9rem', margin: '0 0 20px' }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: isMobile ? '.85rem' : '.9rem', margin: '0 0 20px' }}>
                 Try a different title, author name, or category.
               </p>
               <button
                 onClick={() => setSearchTerm('')}
                 style={{
-                  background: '#7B1F1F', color: 'white', border: 'none',
+                  background: 'var(--maroon)', color: 'white', border: 'none',
                   padding: '12px 24px', borderRadius: 10, cursor: 'pointer',
                   fontWeight: 700, fontSize: '.9rem',
-                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                  fontFamily: 'var(--ff-body)',
                 }}
               >
                 Show All Books
@@ -548,7 +549,7 @@ export default function Home() {
                         className={isAvailable ? 'badge-avail' : ''}
                         style={{
                           position: 'absolute', top: 8, right: 8,
-                          background: isAvailable ? '#3A7D44' : '#EF4444',
+                          background: isAvailable ? 'var(--green)' : '#EF4444',
                           color: 'white',
                           fontSize: isMobile ? '.58rem' : '.62rem',
                           fontWeight: 700, padding: '3px 9px', borderRadius: 100,
@@ -561,7 +562,7 @@ export default function Home() {
                     <div style={{ padding: isMobile ? '11px 13px' : '14px 16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
                       <span style={{
                         fontSize: isMobile ? '.58rem' : '.62rem',
-                        background: '#EAF4EC', color: '#3A7D44',
+                        background: 'var(--green-soft)', color: 'var(--green)',
                         padding: '2px 9px', borderRadius: 100, fontWeight: 700,
                         textTransform: 'uppercase', letterSpacing: '.05em',
                         alignSelf: 'flex-start', marginBottom: 9,
@@ -571,7 +572,7 @@ export default function Home() {
                       <p style={{
                         margin: '0 0 4px', fontWeight: 700,
                         fontSize: isMobile ? '.8rem' : '.9rem',
-                        color: '#1C1917', lineHeight: 1.35,
+                        color: 'var(--ink)', lineHeight: 1.35,
                         display: '-webkit-box', WebkitLineClamp: 2,
                         WebkitBoxOrient: 'vertical', overflow: 'hidden',
                       }}>
@@ -580,7 +581,7 @@ export default function Home() {
                       <p style={{
                         margin: '0 0 13px',
                         fontSize: isMobile ? '.7rem' : '.76rem',
-                        color: '#64748B',
+                        color: 'var(--text-muted)',
                         overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
                       }}>
                         {book.authors || 'Unknown Author'}
@@ -591,7 +592,7 @@ export default function Home() {
                         style={{
                           marginTop: 'auto', textAlign: 'center', display: 'block',
                           padding: isMobile ? '7px 0' : '8px 0',
-                          background: isAvailable ? '#3A7D44' : '#E2E8F0',
+                          background: isAvailable ? 'var(--green)' : '#E2E8F0',
                           color: isAvailable ? 'white' : '#94a3b8',
                           borderRadius: 8, textDecoration: 'none', fontWeight: 700,
                           fontSize: isMobile ? '.74rem' : '.8rem',
@@ -610,24 +611,24 @@ export default function Home() {
 
         {/* ══ FEATURED CATEGORIES ══ */}
         <section style={{
-          background: '#F0E9DF',
+          background: 'var(--cream-dark)',
           padding: isMobile ? '36px 16px' : isTablet ? '44px 28px' : '56px 48px',
         }}>
           <div style={{ maxWidth: 1300, margin: '0 auto' }}>
             <div style={{ textAlign: 'center', marginBottom: isMobile ? 20 : 32 }}>
               <p style={{
-                fontFamily: "'Playfair Display', Georgia, serif",
-                color: '#7B1F1F',
+                fontFamily: 'var(--ff-display)',
+                color: 'var(--maroon)',
                 fontSize: isMobile ? '.8rem' : '.85rem', fontWeight: 600,
                 letterSpacing: '.12em', textTransform: 'uppercase', margin: '0 0 8px',
               }}>
                 Explore by
               </p>
               <h2 style={{
-                fontFamily: "'Playfair Display', Georgia, serif",
+                fontFamily: 'var(--ff-display)',
                 margin: 0,
                 fontSize: isMobile ? '1.5rem' : isTablet ? '1.9rem' : '2.2rem',
-                color: '#7B1F1F', fontWeight: 700,
+                color: 'var(--maroon)', fontWeight: 700,
               }}>
                 Featured Categories
               </h2>
@@ -663,15 +664,15 @@ export default function Home() {
                   </div>
                   <h3 style={{
                     margin: 0,
-                    fontFamily: "'Playfair Display', Georgia, serif",
+                    fontFamily: 'var(--ff-display)',
                     fontSize: isMobile ? '.88rem' : '.96rem',
-                    color: '#1C1917', fontWeight: 700, lineHeight: 1.3,
+                    color: 'var(--ink)', fontWeight: 700, lineHeight: 1.3,
                   }}>
                     {cat.label}
                   </h3>
                   <div style={{
                     fontSize: isMobile ? '.72rem' : '.78rem', marginTop: 8,
-                    color: '#7B1F1F', fontWeight: 600,
+                    color: 'var(--maroon)', fontWeight: 600,
                     letterSpacing: '.06em', textTransform: 'uppercase',
                   }}>
                     Explore →
@@ -684,24 +685,24 @@ export default function Home() {
 
         {/* ══ FEATURES ══ */}
         <section style={{
-          background: '#FDF8F3',
+          background: 'var(--cream)',
           padding: isMobile ? '36px 16px' : isTablet ? '44px 28px' : '56px 48px',
         }}>
           <div style={{ maxWidth: 1300, margin: '0 auto' }}>
             <div style={{ textAlign: 'center', marginBottom: isMobile ? 20 : 36 }}>
               <p style={{
-                fontFamily: "'Playfair Display', Georgia, serif",
-                color: '#7B1F1F',
+                fontFamily: 'var(--ff-display)',
+                color: 'var(--maroon)',
                 fontSize: isMobile ? '.8rem' : '.85rem', fontWeight: 600,
                 letterSpacing: '.12em', textTransform: 'uppercase', margin: '0 0 8px',
               }}>
                 Why ShelfMaster
               </p>
               <h2 style={{
-                fontFamily: "'Playfair Display', Georgia, serif",
+                fontFamily: 'var(--ff-display)',
                 margin: 0,
                 fontSize: isMobile ? '1.5rem' : isTablet ? '1.9rem' : '2.2rem',
-                color: '#7B1F1F', fontWeight: 700,
+                color: 'var(--maroon)', fontWeight: 700,
               }}>
                 System Features
               </h2>
@@ -739,16 +740,16 @@ export default function Home() {
                   <div>
                     <h3 style={{
                       margin: isMobile ? '0 0 5px' : '0 0 8px',
-                      fontFamily: "'Playfair Display', Georgia, serif",
+                      fontFamily: 'var(--ff-display)',
                       fontSize: isMobile ? '.95rem' : '1.05rem',
-                      color: '#7B1F1F', fontWeight: 700,
+                      color: 'var(--maroon)', fontWeight: 700,
                     }}>
                       {f.title}
                     </h3>
                     <p style={{
                       margin: 0,
                       fontSize: isMobile ? '.8rem' : '.88rem',
-                      color: '#64748B', lineHeight: 1.6,
+                      color: 'var(--text-muted)', lineHeight: 1.6,
                     }}>
                       {f.desc}
                     </p>
@@ -762,7 +763,7 @@ export default function Home() {
               display: 'grid',
               gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
               gap: isMobile ? 12 : 16,
-              background: '#5A1515',
+              background: 'var(--maroon-deep)',
               borderRadius: 16,
               padding: isMobile ? 20 : 28,
             }}>
@@ -773,7 +774,7 @@ export default function Home() {
               ].map((c, i) => (
                 <div key={i} style={{ textAlign: isMobile ? 'left' : 'center' }}>
                   <div style={{
-                    fontSize: '.72rem', color: '#E8B84B',
+                    fontSize: '.72rem', color: 'var(--yellow)',
                     fontWeight: 700, letterSpacing: '.1em',
                     textTransform: 'uppercase', marginBottom: 6,
                   }}>
@@ -793,7 +794,7 @@ export default function Home() {
 
         {/* ══ ABOUT ══ */}
         <section style={{
-          background: '#F0E9DF',
+          background: 'var(--cream-dark)',
           padding: isMobile ? '36px 16px' : isTablet ? '52px 28px' : '72px 48px',
         }}>
           <div style={{
@@ -804,10 +805,10 @@ export default function Home() {
           }}>
             <div>
               <h2 style={{
-                fontFamily: "'Playfair Display', Georgia, serif",
+                fontFamily: 'var(--ff-display)',
                 margin: '0 0 20px',
                 fontSize: isMobile ? '2rem' : isTablet ? '2.6rem' : '3.2rem',
-                color: '#7B1F1F', fontWeight: 900, lineHeight: 1.1,
+                color: 'var(--maroon)', fontWeight: 900, lineHeight: 1.1,
               }}>
                 About Us
               </h2>
@@ -831,8 +832,8 @@ export default function Home() {
                       boxShadow: '0 1px 3px rgba(0,0,0,.08)',
                     }}>
                       <strong style={{
-                        color: '#7B1F1F', fontSize: '.85rem',
-                        fontFamily: "'Playfair Display', Georgia, serif",
+                        color: 'var(--maroon)', fontSize: '.85rem',
+                        fontFamily: 'var(--ff-display)',
                       }}>
                         Mission
                       </strong>
@@ -843,13 +844,13 @@ export default function Home() {
                   )}
                   {content.vision && (
                     <div style={{
-                      background: '#FBF0D3', padding: '16px 18px', borderRadius: 12,
+                      background: 'var(--yellow-soft)', padding: '16px 18px', borderRadius: 12,
                       borderLeft: '4px solid #E8B84B',
                       boxShadow: '0 1px 3px rgba(0,0,0,.08)',
                     }}>
                       <strong style={{
-                        color: '#7B1F1F', fontSize: '.85rem',
-                        fontFamily: "'Playfair Display', Georgia, serif",
+                        color: 'var(--maroon)', fontSize: '.85rem',
+                        fontFamily: 'var(--ff-display)',
                       }}>
                         Vision
                       </strong>
@@ -864,7 +865,7 @@ export default function Home() {
               <Link to="/login" style={{
                 display: 'inline-block',
                 padding: isMobile ? '12px 26px' : '14px 32px',
-                background: '#7B1F1F', color: 'white',
+                background: 'var(--maroon)', color: 'white',
                 textDecoration: 'none', borderRadius: 10,
                 fontWeight: 700, fontSize: isMobile ? '.88rem' : '.93rem',
                 letterSpacing: '.02em',
@@ -883,7 +884,7 @@ export default function Home() {
 
         {/* ══ FOOTER ══ */}
         <footer style={{
-          background: '#5A1515', color: 'white',
+          background: 'var(--maroon-deep)', color: 'white',
           padding: isMobile ? '32px 16px 24px' : isTablet ? '40px 28px 28px' : '52px 48px 36px',
         }}>
           <div style={{
@@ -895,7 +896,7 @@ export default function Home() {
           }}>
             <div>
               <h2 style={{
-                fontFamily: "'Playfair Display', Georgia, serif",
+                fontFamily: 'var(--ff-display)',
                 margin: '0 0 10px',
                 fontSize: isMobile ? '1.1rem' : '1.25rem', fontWeight: 700,
               }}>
