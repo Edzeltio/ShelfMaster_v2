@@ -565,6 +565,148 @@ export default function Inventory() {
     pdf.save(`ShelfMaster-CopyBarcodes-${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
+  // Export only AVAILABLE copy barcodes
+  const exportAvailableCopiesPDF = async () => {
+    if (migrationNeeded) {
+      showToast('Please run the database setup first.', 'warning');
+      return;
+    }
+
+    const { data: allCopies, error } = await localDbAdmin
+      .from('book_copies')
+      .select('*, books(title, accession_num)')
+      .eq('status', 'available')
+      .order('accession_id', { ascending: true });
+
+    if (error || !allCopies || allCopies.length === 0) {
+      showToast('No available copies found.', 'warning');
+      return;
+    }
+
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = 210; const pageH = 297;
+    const cols = 3; const rows = 8;
+    const marginX = 8; const marginY = 10;
+    const cellW = (pageW - marginX * 2) / cols;
+    const cellH = (pageH - marginY * 2) / rows;
+    const labelsPerPage = cols * rows;
+    let labelIndex = 0;
+
+    allCopies.forEach((copy, idx) => {
+      if (idx > 0 && idx % labelsPerPage === 0) { pdf.addPage(); labelIndex = 0; }
+      const col = labelIndex % cols;
+      const row = Math.floor(labelIndex / cols);
+      const x = marginX + col * cellW;
+      const y = marginY + row * cellH;
+      const canvas = document.createElement('canvas');
+      try {
+        JsBarcode(canvas, copy.accession_id, { format: 'CODE128', width: 1.5, height: 36, fontSize: 9, margin: 4, displayValue: true });
+        const imgData = canvas.toDataURL('image/png');
+        const imgW = cellW - 6;
+        const imgH = (canvas.height / canvas.width) * imgW;
+        const imgX = x + (cellW - imgW) / 2;
+        const imgY = y + 2;
+        pdf.addImage(imgData, 'PNG', imgX, imgY, imgW, imgH);
+        const title = (copy.books?.title || '').length > 28 ? (copy.books?.title || '').slice(0, 28) + '…' : (copy.books?.title || '');
+        pdf.setFontSize(7); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(30, 41, 59);
+        pdf.text(title, x + cellW / 2, imgY + imgH + 3, { align: 'center', maxWidth: cellW - 4 });
+        pdf.setFontSize(6.5); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(100, 116, 139);
+        pdf.text(`Copy #${copy.copy_number}`, x + cellW / 2, imgY + imgH + 7, { align: 'center' });
+        pdf.setDrawColor(220, 230, 240); pdf.setLineWidth(0.2);
+        pdf.rect(x + 1, y + 1, cellW - 2, cellH - 2);
+      } catch (err) { console.warn('Barcode render failed for:', copy.accession_id, err); }
+      labelIndex++;
+    });
+
+    pdf.save(`ShelfMaster-AvailableBarcodes-${new Date().toISOString().split('T')[0]}.pdf`);
+    showToast(`Exported ${allCopies.length} available copy barcodes.`, 'success');
+  };
+
+  // Export inventory report as PDF
+  const exportInventoryReport = async () => {
+    try {
+      const { data: allBooks, error } = await localDbAdmin
+        .from('books')
+        .select('*')
+        .neq('status', 'archived')
+        .order('title', { ascending: true });
+
+      if (error) throw error;
+      if (!allBooks || allBooks.length === 0) { showToast('No books found in inventory.', 'warning'); return; }
+
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+      // Title header
+      doc.setFillColor(123, 31, 31);
+      doc.rect(0, 0, 297, 22, 'F');
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 255, 255);
+      doc.text('ShelfMaster — Inventory Report', 14, 14);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      doc.text(`Generated: ${new Date().toLocaleString()}  |  Total books: ${allBooks.length}`, 200, 14);
+
+      const totalCopies = allBooks.reduce((s, b) => s + (Number(b.quantity) || 0), 0);
+      doc.setTextColor(255, 220, 150);
+      doc.text(`Total available copies: ${totalCopies}`, 14, 20);
+
+      // Summary stats row
+      const physical = allBooks.filter(b => b.book_type !== 'eBook').length;
+      const ebooks = allBooks.filter(b => b.book_type === 'eBook').length;
+      const outOfStock = allBooks.filter(b => (b.quantity ?? 0) === 0).length;
+
+      doc.setFillColor(245, 250, 232); doc.rect(0, 22, 297, 12, 'F');
+      doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(60, 60, 60);
+      doc.text(`Physical Books: ${physical}   |   eBooks: ${ebooks}   |   Out of Stock: ${outOfStock}`, 14, 30);
+
+      // Table
+      const { default: autoTable } = await import('jspdf-autotable');
+      autoTable(doc, {
+        startY: 36,
+        head: [['#', 'Accession No.', 'Title', 'Author(s)', 'Category', 'Type', 'Edition', 'Pages', 'Available Copies', 'Date Acquired']],
+        body: allBooks.map((b, i) => [
+          i + 1,
+          b.accession_num || '—',
+          b.title || '—',
+          b.authors || '—',
+          b.category || b.subject_class || '—',
+          b.book_type || 'Physical',
+          b.edition || '—',
+          b.pages || '—',
+          b.quantity ?? 0,
+          b.date_acquired ? new Date(b.date_acquired).toLocaleDateString() : '—',
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [123, 31, 31], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+        bodyStyles: { fontSize: 7.5, textColor: [30, 30, 30] },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 8, halign: 'center' },
+          1: { cellWidth: 28 },
+          2: { cellWidth: 55 },
+          3: { cellWidth: 42 },
+          4: { cellWidth: 28 },
+          5: { cellWidth: 20 },
+          6: { cellWidth: 18 },
+          7: { cellWidth: 14, halign: 'center' },
+          8: { cellWidth: 22, halign: 'center' },
+          9: { cellWidth: 26 },
+        },
+        didParseCell: (data) => {
+          // Highlight out-of-stock rows
+          if (data.section === 'body' && data.column.index === 8 && data.cell.raw === 0) {
+            data.cell.styles.textColor = [220, 38, 38];
+            data.cell.styles.fontStyle = 'bold';
+          }
+        },
+      });
+
+      doc.save(`ShelfMaster-Inventory-${new Date().toISOString().split('T')[0]}.pdf`);
+      showToast('Inventory report exported successfully.', 'success');
+    } catch (err) {
+      console.error('Inventory report error:', err);
+      showToast('Failed to generate inventory report: ' + err.message, 'error');
+    }
+  };
+
   const exportCopiesForBook = async (book) => {
     if (migrationNeeded) return;
     const copies = copiesMap[book.id] || [];
@@ -674,6 +816,12 @@ export default function Inventory() {
             <>
               <button onClick={exportAllCopiesPDF} style={exportBtnStyle}>
                 📄 Export All Copy Barcodes
+              </button>
+              <button onClick={exportAvailableCopiesPDF} style={{ ...exportBtnStyle, background: '#16a34a' }}>
+                ✅ Export Available Barcodes
+              </button>
+              <button onClick={exportInventoryReport} style={{ ...exportBtnStyle, background: '#1d4ed8' }}>
+                📊 Inventory Report
               </button>
               <button onClick={openAddModal} style={addBtnStyle}>
                 + Add New Book

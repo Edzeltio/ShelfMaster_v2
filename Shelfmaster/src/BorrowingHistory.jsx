@@ -26,14 +26,42 @@ export default function BorrowingHistory() {
   const [loading, setLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
   const [toast, setToast] = useState({ message: '', type: 'success' });
+  const [finePolicy, setFinePolicy] = useState({ fine_amount: 5, fine_increment_type: 'per_day' });
   const showToast = (message, type = 'success') => setToast({ message, type });
 
+  const computeFine = (dueDate) => {
+    if (!dueDate) return 0;
+    const ms = Date.now() - new Date(dueDate).getTime();
+    if (ms <= 0) return 0;
+    const units = finePolicy.fine_increment_type === 'per_hour'
+      ? Math.ceil(ms / (60 * 60 * 1000))
+      : Math.ceil(ms / (24 * 60 * 60 * 1000));
+    return units * (finePolicy.fine_amount ?? 5);
+  };
+
+  const fineLabel = finePolicy.fine_increment_type === 'per_hour' ? 'hr' : 'day';
+
   useEffect(() => {
+    fetchFinePolicy();
     fetchRecentGlobalHistory();
     const onVisible = () => { if (!document.hidden) fetchRecentGlobalHistory(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
+
+  async function fetchFinePolicy() {
+    const { data } = await localDbAdmin
+      .from('site_content')
+      .select('fine_per_day, fine_amount, fine_increment_type')
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      setFinePolicy({
+        fine_amount: data.fine_amount ?? data.fine_per_day ?? 5,
+        fine_increment_type: data.fine_increment_type || 'per_day',
+      });
+    }
+  }
 
   async function fetchRecentGlobalHistory() {
     setLoading(true);
@@ -116,7 +144,7 @@ export default function BorrowingHistory() {
     if (activeFilter === 'all') return base;
     if (activeFilter === 'active') return base.filter(i => i.status === 'borrowed');
     if (activeFilter === 'returned') return base.filter(i => i.status === 'returned');
-    if (activeFilter === 'pending') return base.filter(i => i.status === 'pending');
+    if (activeFilter === 'overdue') return base.filter(i => isOverdue(i));
     return base;
   };
 
@@ -133,17 +161,22 @@ export default function BorrowingHistory() {
       doc.setTextColor(100);
       doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 28);
 
-      const tableColumn = ['Student', 'Book', 'Copy / Accession ID', 'Status', 'Due Date', 'Overdue'];
-      const tableRows = data.map(item => [
-        item.users?.name || selectedStudent?.name || 'Unknown',
-        item.books?.title || 'Untitled',
-        item.book_copies?.accession_id
-          ? `${item.book_copies.accession_id} (Copy #${item.book_copies.copy_number})`
-          : item.books?.accession_num || '—',
-        item.status?.toUpperCase() || '-',
-        item.due_date ? new Date(item.due_date).toLocaleDateString() : '—',
-        isOverdue(item) ? 'YES' : 'NO'
-      ]);
+      const tableColumn = ['Student', 'Book', 'Copy / Accession ID', 'Status', 'Due Date', 'Overdue', 'Fine (₱)'];
+      const tableRows = data.map(item => {
+        const overdue = isOverdue(item);
+        const estFine = overdue ? computeFine(item.due_date).toFixed(2) : '—';
+        return [
+          item.users?.name || selectedStudent?.name || 'Unknown',
+          item.books?.title || 'Untitled',
+          item.book_copies?.accession_id
+            ? `${item.book_copies.accession_id} (Copy #${item.book_copies.copy_number})`
+            : item.books?.accession_num || '—',
+          item.status?.toUpperCase() || '-',
+          item.due_date ? new Date(item.due_date).toLocaleDateString() : '—',
+          overdue ? 'YES' : 'NO',
+          item.fine_amount != null && item.fine_amount > 0 ? `₱${Number(item.fine_amount).toFixed(2)}` : (overdue ? `~₱${estFine}` : '—'),
+        ];
+      });
 
       autoTable(doc, { startY: 35, head: [tableColumn], body: tableRows, theme: 'grid', headStyles: { fillColor: [30, 58, 138] } });
       doc.save(fileName);
@@ -198,6 +231,7 @@ export default function BorrowingHistory() {
           { key: 'active', label: '📖 Active Loans' },
           { key: 'returned', label: '✅ Returned' },
           { key: 'pending', label: '🕐 Pending' },
+          { key: 'overdue', label: '⚠ Overdue' },
         ].map(f => (
           <button
             key={f.key}
@@ -260,6 +294,7 @@ export default function BorrowingHistory() {
                 <th style={{ padding: '12px' }}>Borrow Date</th>
                 <th style={{ padding: '12px' }}>Due Date</th>
                 <th style={{ padding: '12px' }}>Returned</th>
+                <th style={{ padding: '12px' }}>Fine (₱)</th>
               </tr>
             </thead>
             <tbody>
@@ -303,6 +338,18 @@ export default function BorrowingHistory() {
                     </td>
                     <td style={{ padding: '12px' }}>
                       {item.return_date ? new Date(item.return_date).toLocaleDateString() : '—'}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {item.fine_amount != null && item.fine_amount > 0 ? (
+                        <span style={{ color: '#dc2626', fontWeight: 700 }}>₱{Number(item.fine_amount).toFixed(2)}</span>
+                      ) : overdue ? (
+                        <span style={{ color: '#e11d48', fontSize: '0.78rem', fontStyle: 'italic' }}>
+                          ~₱{computeFine(item.due_date).toFixed(2)}
+                          <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>₱{finePolicy.fine_amount}/{fineLabel}</div>
+                        </span>
+                      ) : (
+                        <span style={{ color: '#94a3b8' }}>—</span>
+                      )}
                     </td>
                   </tr>
                 );

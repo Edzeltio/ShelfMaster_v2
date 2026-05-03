@@ -31,16 +31,43 @@ export default function PendingRequests() {
   const [activeLoans, setActiveLoans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ message: '', type: 'success' });
-  const [finePerDay, setFinePerDay] = useState(5);
+
+  // Fine policy — controls overdue charge calculation only.
+  const [finePolicy, setFinePolicy] = useState({
+    fine_amount: 5,
+    fine_increment_value: 1,        // charge once every N units
+    fine_increment_type: 'per_day', // 'per_day' | 'per_hour'
+  });
+
+  // Borrow policy — used ONLY as a fallback when a transaction has no due_date.
+  // If the transaction already has a due_date set (chosen by the borrower),
+  // that value always takes priority over this setting.
+  const [borrowPolicy, setBorrowPolicy] = useState({
+    borrow_duration_value: 7,
+    borrow_duration_unit: 'days',
+  });
+
   const showToast = (message, type = 'success') => setToast({ message, type });
 
-  async function fetchFinePerDay() {
+  async function fetchPolicies() {
     const { data } = await localDbAdmin
       .from('site_content')
-      .select('fine_per_day')
+      .select('fine_per_day, fine_amount, fine_increment_value, fine_increment_type, borrow_duration_value, borrow_duration_unit')
       .limit(1)
       .maybeSingle();
-    if (data && data.fine_per_day != null) setFinePerDay(Number(data.fine_per_day));
+
+    if (data) {
+      const amount = data.fine_amount ?? data.fine_per_day ?? 5;
+      setFinePolicy({
+        fine_amount: amount,
+        fine_increment_value: Math.max(1, Number(data.fine_increment_value ?? 1)),
+        fine_increment_type: data.fine_increment_type || 'per_day',
+      });
+      setBorrowPolicy({
+        borrow_duration_value: data.borrow_duration_value ?? 7,
+        borrow_duration_unit: data.borrow_duration_unit || 'days',
+      });
+    }
   }
 
   useEffect(() => {
@@ -57,7 +84,7 @@ export default function PendingRequests() {
 
   async function fetchAll() {
     setLoading(true);
-    await Promise.all([fetchPendingRequests(), fetchActiveLoans(), fetchFinePerDay()]);
+    await Promise.all([fetchPendingRequests(), fetchActiveLoans(), fetchPolicies()]);
     setLoading(false);
   }
 
@@ -146,12 +173,12 @@ export default function PendingRequests() {
   const handleAction = async (req, isApprove) => {
     try {
       const transactionId = req.id;
-      const bookId = req.book_id;
-      const currentStock = req.books?.quantity ?? 0;
-      const userRole = req.users?.role;
-      const userId = req.user_id;
-      const bookTitle = req.books?.title || 'your book';
-      const isTeacher = userRole === 'teacher';
+      const bookId        = req.book_id;
+      const currentStock  = req.books?.quantity ?? 0;
+      const userRole      = req.users?.role;
+      const userId        = req.user_id;
+      const bookTitle     = req.books?.title || 'your book';
+      const isTeacher     = userRole === 'teacher';
 
       if (isApprove) {
         if (currentStock <= 0) {
@@ -159,13 +186,17 @@ export default function PendingRequests() {
           return;
         }
 
-        // Honour the due date the student picked in the borrow modal; otherwise
-        // fall back to the legacy 7-day default. Teachers stay open-ended.
+        // due_date on the transaction (set by the borrower) is the source of truth.
+        // borrowPolicy is the fallback ONLY when no due_date was chosen.
+        const defaultDurationMs = borrowPolicy.borrow_duration_unit === 'hours'
+          ? borrowPolicy.borrow_duration_value * 60 * 60 * 1000
+          : borrowPolicy.borrow_duration_value * 24 * 60 * 60 * 1000;
+
         const dueDate = isTeacher
           ? null
           : (req.due_date
             ? new Date(req.due_date).toISOString()
-            : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
+            : new Date(Date.now() + defaultDurationMs).toISOString());
 
         const copy = await assignAvailableCopy(bookId);
 
@@ -232,22 +263,37 @@ export default function PendingRequests() {
     }
   };
 
-  const computeOverdueDays = (dueDate) => {
+  // Returns the number of overdue units (days or hours) based on fine policy.
+  const computeOverdueUnits = (dueDate) => {
     if (!dueDate) return 0;
     const ms = Date.now() - new Date(dueDate).getTime();
     if (ms <= 0) return 0;
+    if (finePolicy.fine_increment_type === 'per_hour') {
+      return Math.ceil(ms / (60 * 60 * 1000));
+    }
     return Math.ceil(ms / (24 * 60 * 60 * 1000));
   };
 
+  // Computes fine respecting the increment value (e.g. charge once every 3 days).
+  const computeFine = (dueDate) => {
+    const rawUnits  = computeOverdueUnits(dueDate);
+    const incrValue = finePolicy.fine_increment_value || 1;
+    const charges   = Math.floor(rawUnits / incrValue); // whole increments only
+    return charges * finePolicy.fine_amount;
+  };
+
+  const fineLabel = finePolicy.fine_increment_type === 'per_hour' ? 'hour' : 'day';
+
   const handleReturn = async (loan) => {
     try {
-      const overdueDays = computeOverdueDays(loan.due_date);
-      const suggested = (overdueDays * finePerDay).toFixed(2);
-      let fineAmount = 0;
+      const overdueUnits = computeOverdueUnits(loan.due_date);
+      const suggested    = computeFine(loan.due_date).toFixed(2);
+      let fineAmount     = 0;
 
-      if (overdueDays > 0) {
+      if (overdueUnits > 0) {
+        const charges = Math.floor(overdueUnits / (finePolicy.fine_increment_value || 1));
         const input = window.prompt(
-          `This book is ${overdueDays} day(s) overdue.\n\nFine: ₱${finePerDay}/day → suggested ₱${suggested}\n\nEnter the fine amount to record (or 0 to waive):`,
+          `This book is ${overdueUnits} ${fineLabel}(s) overdue.\n\nPolicy: ₱${finePolicy.fine_amount} per every ${finePolicy.fine_increment_value} ${fineLabel}(s) → ${charges} charge(s) → suggested ₱${suggested}\n\nEnter the fine amount to record (or 0 to waive):`,
           suggested
         );
         if (input === null) return; // cancelled
@@ -304,7 +350,7 @@ export default function PendingRequests() {
         type: fineAmount > 0 ? 'return_with_fine' : 'returned',
         title: fineAmount > 0 ? 'Book returned — fine due' : 'Book returned',
         body: fineAmount > 0
-          ? `Your return of "${loan.books?.title}" was recorded. Overdue ${overdueDays} day(s). Fine due: ₱${fineAmount.toFixed(2)}.`
+          ? `Your return of "${loan.books?.title}" was recorded. Overdue ${overdueUnits} ${fineLabel}(s). Fine due: ₱${fineAmount.toFixed(2)}.`
           : `Your return of "${loan.books?.title}" was recorded. Thank you!`,
       });
 
@@ -320,6 +366,7 @@ export default function PendingRequests() {
     return new Date(item.due_date) < new Date();
   };
 
+  // ── Styles ────────────────────────────────────────────────────────────────
   const tabStyle = {
     padding: '10px 22px',
     borderRadius: '8px 8px 0 0',
@@ -375,7 +422,7 @@ export default function PendingRequests() {
           onClick={() => setActiveTab('active')}
         >
           📖 Active Loans
-          {activeLoans.length > 0 && (
+          {activeLoans.filter(l => !isOverdue(l)).length > 0 && (
             <span style={{
               marginLeft: '8px',
               background: activeTab === 'active' ? 'rgba(255,255,255,0.25)' : 'var(--green)',
@@ -384,7 +431,25 @@ export default function PendingRequests() {
               padding: '1px 8px',
               fontSize: '0.78rem',
             }}>
-              {activeLoans.length}
+              {activeLoans.filter(l => !isOverdue(l)).length}
+            </span>
+          )}
+        </button>
+        <button
+          style={{ ...tabStyle, ...(activeTab === 'overdue' ? { ...activeTabStyle, background: '#e11d48' } : { ...inactiveTabStyle, color: '#e11d48' }) }}
+          onClick={() => setActiveTab('overdue')}
+        >
+          ⚠ Overdue Books
+          {activeLoans.filter(l => isOverdue(l)).length > 0 && (
+            <span style={{
+              marginLeft: '8px',
+              background: activeTab === 'overdue' ? 'rgba(255,255,255,0.25)' : '#e11d48',
+              color: 'white',
+              borderRadius: '12px',
+              padding: '1px 8px',
+              fontSize: '0.78rem',
+            }}>
+              {activeLoans.filter(l => isOverdue(l)).length}
             </span>
           )}
         </button>
@@ -443,8 +508,8 @@ export default function PendingRequests() {
                         {req.users?.role === 'teacher'
                           ? 'No due date'
                           : (req.due_date
-                              ? `Wants by: ${new Date(req.due_date).toLocaleDateString()}`
-                              : '7-day loan')}
+                            ? `Wants by: ${new Date(req.due_date).toLocaleDateString()}`
+                            : `Default: ${borrowPolicy.borrow_duration_value}-${borrowPolicy.borrow_duration_unit} loan`)}
                       </div>
                     </td>
                     <td style={{ padding: '15px 20px' }}>
@@ -475,38 +540,37 @@ export default function PendingRequests() {
               </tbody>
             </table>
           )
-        ) : (
-          activeLoans.length === 0 ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>📭</div>
-              <h3 style={{ margin: '0 0 6px' }}>No active loans</h3>
-              <p style={{ margin: 0 }}>No books are currently checked out.</p>
-            </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-              <thead style={{ background: '#F5FAE8', borderBottom: '2px solid #e2e8f0' }}>
-                <tr>
-                  <th style={{ padding: '15px 20px', color: '#475569' }}>Patron</th>
-                  <th style={{ padding: '15px 20px', color: '#475569' }}>Book</th>
-                  <th style={{ padding: '15px 20px', color: '#475569' }}>Copy / Accession</th>
-                  <th style={{ padding: '15px 20px', color: '#475569' }}>Borrow Date</th>
-                  <th style={{ padding: '15px 20px', color: '#475569' }}>Due Date</th>
-                  <th style={{ padding: '15px 20px', color: '#475569' }}>Status</th>
-                  <th style={{ padding: '15px 20px', color: '#475569' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeLoans.map((loan) => {
-                  const overdue = isOverdue(loan);
-                  return (
-                    <tr key={loan.id} style={{ borderBottom: '1px solid #f1f5f9', background: overdue ? '#fff1f2' : 'transparent' }}>
+        ) : activeTab === 'active' ? (
+          // ── ACTIVE LOANS (non-overdue only) ──
+          (() => {
+            const loans = activeLoans.filter(l => !isOverdue(l));
+            return loans.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>📭</div>
+                <h3 style={{ margin: '0 0 6px' }}>No active loans</h3>
+                <p style={{ margin: 0 }}>No books are currently checked out within their due date.</p>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead style={{ background: '#F5FAE8', borderBottom: '2px solid #e2e8f0' }}>
+                  <tr>
+                    <th style={{ padding: '15px 20px', color: '#475569' }}>Patron</th>
+                    <th style={{ padding: '15px 20px', color: '#475569' }}>Book</th>
+                    <th style={{ padding: '15px 20px', color: '#475569' }}>Copy / Accession</th>
+                    <th style={{ padding: '15px 20px', color: '#475569' }}>Borrow Date</th>
+                    <th style={{ padding: '15px 20px', color: '#475569' }}>Due Date</th>
+                    <th style={{ padding: '15px 20px', color: '#475569' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loans.map((loan) => (
+                    <tr key={loan.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                       <td style={{ padding: '15px 20px' }}>
                         <strong style={{ color: 'var(--dark-blue)', display: 'block' }}>{loan.users?.name}</strong>
                         <span style={{ fontSize: '0.82rem', color: '#64748b' }}>ID: {loan.users?.student_id || 'N/A'}</span>
                       </td>
                       <td style={{ padding: '15px 20px' }}>
                         <strong>{loan.books?.title}</strong>
-                        {overdue && <div style={{ color: '#e11d48', fontSize: '0.72rem', fontWeight: 'bold', marginTop: '2px' }}>⚠ OVERDUE</div>}
                       </td>
                       <td style={{ padding: '15px 20px' }}>
                         {loan.book_copies?.accession_id ? (
@@ -523,37 +587,97 @@ export default function PendingRequests() {
                       <td style={{ padding: '15px 20px', color: '#475569' }}>
                         {loan.borrow_date ? new Date(loan.borrow_date).toLocaleDateString() : '—'}
                       </td>
-                      <td style={{ padding: '15px 20px', color: overdue ? '#e11d48' : '#475569', fontWeight: overdue ? 'bold' : 'normal' }}>
+                      <td style={{ padding: '15px 20px', color: '#475569' }}>
                         {loan.due_date ? new Date(loan.due_date).toLocaleDateString() : <span style={{ color: '#94a3b8' }}>No due date</span>}
                       </td>
                       <td style={{ padding: '15px 20px' }}>
-                        <span style={{
-                          padding: '4px 10px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold',
-                          background: overdue ? '#fee2e2' : '#dbeafe',
-                          color: overdue ? '#e11d48' : '#1d4ed8',
-                        }}>
-                          {overdue ? 'OVERDUE' : 'BORROWED'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '15px 20px' }}>
-                        <button
-                          onClick={() => handleReturn(loan)}
-                          style={{
-                            padding: '8px 14px',
-                            background: overdue ? '#e11d48' : 'var(--green)',
-                            color: 'white', border: 'none', borderRadius: '4px',
-                            cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold'
-                          }}
-                        >
-                          {overdue ? 'Return + Fine' : 'Return'}
+                        <button onClick={() => handleReturn(loan)} style={{ padding: '8px 14px', background: 'var(--green)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                          Return
                         </button>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()
+        ) : (
+          // ── OVERDUE BOOKS ──
+          (() => {
+            const loans = activeLoans.filter(l => isOverdue(l));
+            return loans.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🎉</div>
+                <h3 style={{ margin: '0 0 6px' }}>No overdue books!</h3>
+                <p style={{ margin: 0 }}>All borrowed books are within their due dates.</p>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead style={{ background: '#fee2e2', borderBottom: '2px solid #fecaca' }}>
+                  <tr>
+                    <th style={{ padding: '15px 20px', color: '#991b1b' }}>Patron</th>
+                    <th style={{ padding: '15px 20px', color: '#991b1b' }}>Book</th>
+                    <th style={{ padding: '15px 20px', color: '#991b1b' }}>Copy / Accession</th>
+                    <th style={{ padding: '15px 20px', color: '#991b1b' }}>Borrow Date</th>
+                    <th style={{ padding: '15px 20px', color: '#991b1b' }}>Due Date</th>
+                    <th style={{ padding: '15px 20px', color: '#991b1b' }}>{finePolicy.fine_increment_type === 'per_hour' ? 'Hours' : 'Days'} Overdue</th>
+                    <th style={{ padding: '15px 20px', color: '#991b1b' }}>
+                      Est. Fine (₱{finePolicy.fine_amount} per {finePolicy.fine_increment_value} {fineLabel}(s))
+                    </th>
+                    <th style={{ padding: '15px 20px', color: '#991b1b' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loans.map((loan) => {
+                    const units   = computeOverdueUnits(loan.due_date);
+                    const estFine = computeFine(loan.due_date).toFixed(2);
+                    return (
+                      <tr key={loan.id} style={{ borderBottom: '1px solid #fecaca', background: '#fff7f7' }}>
+                        <td style={{ padding: '15px 20px' }}>
+                          <strong style={{ color: 'var(--dark-blue)', display: 'block' }}>{loan.users?.name}</strong>
+                          <span style={{ fontSize: '0.82rem', color: '#64748b' }}>ID: {loan.users?.student_id || 'N/A'}</span>
+                        </td>
+                        <td style={{ padding: '15px 20px' }}>
+                          <strong>{loan.books?.title}</strong>
+                        </td>
+                        <td style={{ padding: '15px 20px' }}>
+                          {loan.book_copies?.accession_id ? (
+                            <div>
+                              <code style={{ background: '#eef2ff', color: '#6366f1', padding: '2px 7px', borderRadius: '4px', fontSize: '0.78rem', fontFamily: 'monospace' }}>
+                                {loan.book_copies.accession_id}
+                              </code>
+                              <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>Copy #{loan.book_copies.copy_number}</div>
+                            </div>
+                          ) : (
+                            <span style={{ color: '#94a3b8', fontSize: '0.82rem' }}>{loan.books?.accession_num || '—'}</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '15px 20px', color: '#475569' }}>
+                          {loan.borrow_date ? new Date(loan.borrow_date).toLocaleDateString() : '—'}
+                        </td>
+                        <td style={{ padding: '15px 20px', color: '#e11d48', fontWeight: 'bold' }}>
+                          {loan.due_date ? new Date(loan.due_date).toLocaleDateString() : '—'}
+                        </td>
+                        <td style={{ padding: '15px 20px' }}>
+                          <span style={{ background: '#fee2e2', color: '#dc2626', padding: '3px 10px', borderRadius: '20px', fontWeight: 700, fontSize: '0.82rem' }}>
+                            {units} {units === 1 ? fineLabel : fineLabel + 's'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '15px 20px', fontWeight: 700, color: '#dc2626' }}>
+                          ₱{estFine}
+                        </td>
+                        <td style={{ padding: '15px 20px' }}>
+                          <button onClick={() => handleReturn(loan)} style={{ padding: '8px 14px', background: '#e11d48', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                            Return + Fine
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            );
+          })()
         )}
       </div>
     </div>

@@ -6,10 +6,18 @@ import Toast from './Toast';
 import { useResponsive } from './useResponsive';
 
 const LRN_PATTERN = /^\d{12}$/;
+const NAME_MIN = 3;
+const NAME_MAX = 80;
+
+const GRADE_OPTIONS = [
+  'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12',
+];
 
 export default function Signup() {
   const [formData, setFormData] = useState({
-    email: '', password: '', name: '', lrn: '', grade_section: '', role: 'student'
+    email: '', password: '', name: '', lrn: '',
+    grade: '', section: '',
+    role: 'student'
   });
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState({ message: '', type: 'success' });
@@ -31,11 +39,18 @@ export default function Signup() {
 
     const cleanName = sanitizeText(formData.name);
     const cleanLrn = sanitizeText(formData.lrn);
-    const cleanGradeSection = sanitizeText(formData.grade_section);
+    const cleanGrade = sanitizeText(formData.grade);
+    const cleanSection = sanitizeText(formData.section);
     const cleanEmail = sanitizeText(formData.email).toLowerCase();
 
-    if (!cleanName || !cleanLrn || !cleanGradeSection || !cleanEmail || !formData.password) {
+    if (!cleanName || !cleanLrn || !cleanGrade || !cleanSection || !cleanEmail || !formData.password) {
       showToast('All fields are required.', 'warning'); setLoading(false); return;
+    }
+    if (cleanName.length < NAME_MIN) {
+      showToast(`Full name must be at least ${NAME_MIN} characters.`, 'warning'); setLoading(false); return;
+    }
+    if (!/[a-zA-Z]/.test(cleanName)) {
+      showToast('Full name must contain letters.', 'warning'); setLoading(false); return;
     }
     if (!LRN_PATTERN.test(cleanLrn)) {
       showToast('LRN must be exactly 12 digits.', 'warning'); setLoading(false); return;
@@ -43,6 +58,11 @@ export default function Signup() {
     if (formData.password.length < 6) {
       showToast('Password must be at least 6 characters long.', 'warning'); setLoading(false); return;
     }
+    if (cleanSection.length < 1) {
+      showToast('Section / Strand is required.', 'warning'); setLoading(false); return;
+    }
+
+    const combined = `${cleanGrade} - ${cleanSection}`;
 
     try {
       const signupResult = await localDb.auth.signUp({ email: cleanEmail, password: formData.password });
@@ -53,7 +73,7 @@ export default function Signup() {
       const { error: profileError } = await localDb.from('users').insert([{
         auth_id: authUser.id, name: cleanName,
         student_id: cleanLrn, lrn: cleanLrn,
-        grade_section: cleanGradeSection, course_year: cleanGradeSection,
+        grade_section: combined, course_year: combined,
         role: formData.role, status: 'active'
       }]);
       if (profileError) throw profileError;
@@ -117,23 +137,42 @@ export default function Signup() {
 
           <form onSubmit={handleSignup} style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 12 : 13 }}>
             <div style={fieldGroup}>
-              <label style={labelStyle}>Full Name</label>
+              <label style={labelStyle}>
+                Full Name
+                <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 6, fontSize: '0.75rem' }}>
+                  ({NAME_MIN}–{NAME_MAX} chars)
+                </span>
+              </label>
               <input type="text" name="name" placeholder="Juan Dela Cruz"
-                style={inputStyle} value={formData.name} onChange={handleChange} required className="sm-input" />
+                style={inputStyle} value={formData.name} onChange={handleChange}
+                minLength={NAME_MIN} maxLength={NAME_MAX} required className="sm-input" />
             </div>
 
+            <div style={fieldGroup}>
+              <label style={labelStyle}>LRN (12 digits)</label>
+              <input type="text" name="lrn" placeholder="123456789012"
+                inputMode="numeric" pattern="\d{12}" maxLength={12}
+                title="LRN must be exactly 12 digits"
+                style={inputStyle} value={formData.lrn} onChange={handleChange} required className="sm-input" />
+            </div>
+
+            {/* Grade + Section separated */}
             <div style={{ display: 'flex', gap: isMobile ? 8 : 12, flexDirection: isMobile ? 'column' : 'row' }}>
               <div style={{ flex: 1, ...fieldGroup }}>
-                <label style={labelStyle}>LRN (12 digits)</label>
-                <input type="text" name="lrn" placeholder="123456789012"
-                  inputMode="numeric" pattern="\d{12}" maxLength={12}
-                  title="LRN must be exactly 12 digits"
-                  style={inputStyle} value={formData.lrn} onChange={handleChange} required className="sm-input" />
+                <label style={labelStyle}>Grade Level</label>
+                <select name="grade" value={formData.grade} onChange={handleChange}
+                  required style={{ ...inputStyle, cursor: 'pointer' }} className="sm-input">
+                  <option value="">Select Grade</option>
+                  {GRADE_OPTIONS.map(g => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
               </div>
               <div style={{ flex: 1, ...fieldGroup }}>
-                <label style={labelStyle}>Grade & Section / Strand</label>
-                <input type="text" name="grade_section" placeholder="Grade 11 - STEM"
-                  style={inputStyle} value={formData.grade_section} onChange={handleChange} required className="sm-input" />
+                <label style={labelStyle}>Section / Strand</label>
+                <input type="text" name="section" placeholder="e.g. STEM or Rizal"
+                  style={inputStyle} value={formData.section} onChange={handleChange}
+                  required maxLength={50} className="sm-input" />
               </div>
             </div>
 
@@ -192,6 +231,6 @@ const formTitleStyle = (isMobile) => ({ fontFamily: 'var(--ff-display)', textAli
 const formSubStyle = (isMobile) => ({ textAlign: 'center', color: 'var(--text-muted)', margin: '0 0 22px', fontSize: isMobile ? '.84rem' : '.9rem' });
 const fieldGroup = { display: 'flex', flexDirection: 'column', gap: 5 };
 const labelStyle = { fontSize: '.82rem', fontWeight: 600, color: 'var(--text-muted)' };
-const inputStyle = { padding: '12px 16px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: '.95rem', background: 'var(--cream)', outline: 'none', transition: 'border-color .2s, background .2s, box-shadow .2s', color: 'var(--text-main)', width: '100%' };
+const inputStyle = { padding: '12px 16px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: '.95rem', background: 'var(--cream)', outline: 'none', transition: 'border-color .2s, background .2s, box-shadow .2s', color: 'var(--text-main)', width: '100%', boxSizing: 'border-box' };
 const submitStyle = { background: 'var(--maroon)', color: 'white', padding: '14px', borderRadius: 10, border: 'none', fontWeight: 700, fontSize: '1rem', cursor: 'pointer', marginTop: 6, transition: 'background .2s, transform .15s', letterSpacing: '.02em' };
 const switchStyle = (isMobile) => ({ color: 'var(--text-muted)', fontSize: isMobile ? '.84rem' : '.9rem', textAlign: 'center', marginTop: 20 });

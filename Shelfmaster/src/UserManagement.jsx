@@ -47,11 +47,21 @@ export default function UserManagement() {
   async function handleArchive(user) {
     if (!window.confirm(`Archive ${user.name}? They will no longer appear in the active list and cannot log in.`)) return;
     try {
-      const res = await fetch(`${getBaseURL()}/api/users/${user.id}/archive`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) throw new Error((await res.json()).error || 'Archive failed');
+      const base = getBaseURL();
+      if (base) {
+        const res = await fetch(`${base}/api/users/${user.id}/archive`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || 'Archive failed');
+      } else {
+        // Fallback: update directly via admin DB
+        const { error } = await localDbAdmin
+          .from('users')
+          .update({ archived_at: new Date().toISOString(), status: 'inactive' })
+          .eq('id', user.id);
+        if (error) throw new Error(error.message);
+      }
       showToast(`${user.name} archived.`);
       fetchUsers();
     } catch (e) {
@@ -61,11 +71,20 @@ export default function UserManagement() {
 
   async function handleUnarchive(user) {
     try {
-      const res = await fetch(`${getBaseURL()}/api/users/${user.id}/unarchive`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) throw new Error((await res.json()).error || 'Restore failed');
+      const base = getBaseURL();
+      if (base) {
+        const res = await fetch(`${base}/api/users/${user.id}/unarchive`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || 'Restore failed');
+      } else {
+        const { error } = await localDbAdmin
+          .from('users')
+          .update({ archived_at: null, status: 'active' })
+          .eq('id', user.id);
+        if (error) throw new Error(error.message);
+      }
       showToast(`${user.name} restored.`);
       fetchUsers();
     } catch (e) {
@@ -84,11 +103,21 @@ export default function UserManagement() {
       return;
     }
     try {
-      const res = await fetch(`${getBaseURL()}/api/users/${user.id}`, {
-        method: 'DELETE',
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
+      const base = getBaseURL();
+      if (base) {
+        const res = await fetch(`${base}/api/users/${user.id}`, {
+          method: 'DELETE',
+          headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
+      } else {
+        // Fallback: delete directly via admin DB
+        const { error } = await localDbAdmin
+          .from('users')
+          .delete()
+          .eq('id', user.id);
+        if (error) throw new Error(error.message);
+      }
       showToast(`${user.name} deleted.`);
       if (selectedUser?.id === user.id) setSelectedUser(null);
       fetchUsers();

@@ -32,6 +32,25 @@ export default function WalkIn() {
 
   const [submitting, setSubmitting] = useState(false);
 
+  const [defaultBorrowDays, setDefaultBorrowDays] = useState(7);
+
+  useEffect(() => {
+    // Load default borrow duration from settings
+    localDbAdmin
+      .from('site_content')
+      .select('borrow_duration_value, borrow_duration_unit')
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.borrow_duration_value) {
+          const days = data.borrow_duration_unit === 'hours'
+            ? Math.ceil(data.borrow_duration_value / 24)
+            : data.borrow_duration_value;
+          setDefaultBorrowDays(Math.max(1, days));
+        }
+      });
+  }, []);
+
   useEffect(() => {
     if (!borrowerType) return;
     setLoading(true);
@@ -85,7 +104,7 @@ export default function WalkIn() {
       return;
     }
     const uid = `${b.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setBorrowList(prev => [...prev, { ...b, days: 7, uid }]);
+    setBorrowList(prev => [...prev, { ...b, days: defaultBorrowDays, uid }]);
   };
 
   const removeBook = (uid) => setBorrowList(prev => prev.filter(b => b.uid !== uid));

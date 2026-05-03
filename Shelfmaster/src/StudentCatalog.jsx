@@ -17,18 +17,33 @@ export default function StudentCatalog() {
 
   // Borrow modal state
   const [borrowBook, setBorrowBook] = useState(null);
-  const [borrowQty, setBorrowQty] = useState(1);
   const [borrowDueDate, setBorrowDueDate] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() + 7);
     return d.toISOString().slice(0, 10);
   });
+  const [activeLoansCount, setActiveLoansCount] = useState(0);
   const todayIso = new Date().toISOString().slice(0, 10);
+  const MAX_LOANS = 3;
 
-  const openBorrowModal = (book) => {
+  const openBorrowModal = async (book) => {
     setBorrowBook(book);
-    setBorrowQty(1);
     const d = new Date(); d.setDate(d.getDate() + 7);
     setBorrowDueDate(d.toISOString().slice(0, 10));
+    // Fetch current active loans count
+    try {
+      const { data: { user } } = await localDb.auth.getUser();
+      if (user) {
+        const { data: userData } = await localDb.from('users').select('id').eq('auth_id', user.id).single();
+        if (userData) {
+          const { count } = await localDb
+            .from('transactions')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', userData.id)
+            .in('status', ['borrowed', 'pending', 'approved', 'issued', 'active', 'loaned', 'checked_out']);
+          setActiveLoansCount(count || 0);
+        }
+      }
+    } catch {}
   };
   const closeBorrowModal = () => setBorrowBook(null);
 
@@ -47,9 +62,12 @@ export default function StudentCatalog() {
     e?.preventDefault?.();
     if (!borrowBook) return;
     const book = borrowBook;
-    const qty = Math.max(1, Math.min(Number(borrowQty) || 1, book.quantity ?? 1));
     if (!borrowDueDate) { showToast('Please choose a return date.', 'warning'); return; }
     if (borrowDueDate < todayIso) { showToast('Return date cannot be in the past.', 'warning'); return; }
+    if (activeLoansCount >= MAX_LOANS) {
+      showToast(`You already have ${activeLoansCount} book(s) borrowed or pending. Maximum is ${MAX_LOANS}.`, 'warning');
+      return;
+    }
 
     setAddingId(book.id);
     try {
@@ -66,6 +84,17 @@ export default function StudentCatalog() {
         return;
       }
 
+      // Re-check current loans count before inserting
+      const { count: latestCount } = await localDb
+        .from('transactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userData.id)
+        .in('status', ['borrowed', 'pending', 'approved', 'issued', 'active', 'loaned', 'checked_out']);
+      if ((latestCount || 0) >= MAX_LOANS) {
+        showToast(`You already have ${latestCount} book(s) borrowed or pending. Maximum is ${MAX_LOANS}.`, 'warning');
+        return;
+      }
+
       // Block re-requesting if there's already a pending request for this book.
       const { data: existing } = await localDb
         .from('transactions')
@@ -79,23 +108,15 @@ export default function StudentCatalog() {
         return;
       }
 
-      // Build N pending transactions, one row per copy requested.
-      const rows = Array.from({ length: qty }).map(() => ({
+      const { error } = await localDb.from('transactions').insert([{
         user_id: userData.id,
         book_id: book.id,
         status: 'pending',
         due_date: borrowDueDate,
-      }));
-
-      const { error } = await localDb.from('transactions').insert(rows);
+      }]);
       if (error) throw error;
 
-      showToast(
-        qty === 1
-          ? `"${book.title}" requested! Wait for librarian approval.`
-          : `Requested ${qty} copies of "${book.title}".`,
-        'success'
-      );
+      showToast(`"${book.title}" requested! Wait for librarian approval.`, 'success');
       closeBorrowModal();
     } catch (err) {
       showToast(err.message || 'Something went wrong. Please try again.', 'error');
@@ -263,28 +284,27 @@ export default function StudentCatalog() {
 
             <div style={{ background: 'var(--cream)', padding: '12px 14px', borderRadius: 10, marginBottom: 16 }}>
               <p style={{ margin: '0 0 4px', fontWeight: 700, color: '#1e293b' }}>{borrowBook.title}</p>
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem' }}>by {borrowBook.authors}</p>
-              <p style={{ margin: '6px 0 0', color: 'var(--green)', fontSize: '0.8rem', fontWeight: 700 }}>
+              <p style={{ margin: '0 0 4px', color: '#64748b', fontSize: '0.85rem' }}>by {borrowBook.authors}</p>
+              <p style={{ margin: '0 0 0', color: 'var(--green)', fontSize: '0.8rem', fontWeight: 700 }}>
                 {borrowBook.quantity ?? 0} available
               </p>
+              {borrowBook.description && (
+                <p style={{ margin: '8px 0 0', color: '#475569', fontSize: '0.82rem', lineHeight: 1.5, borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
+                  {borrowBook.description}
+                </p>
+              )}
+            </div>
+
+            {/* 3-book limit warning */}
+            <div style={{ background: activeLoansCount >= MAX_LOANS ? '#fee2e2' : '#f0fdf4', borderRadius: 8, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '0.82rem', color: activeLoansCount >= MAX_LOANS ? '#dc2626' : '#16a34a', fontWeight: 600 }}>
+                {activeLoansCount >= MAX_LOANS
+                  ? `⛔ You've reached the ${MAX_LOANS}-book limit. Return a book first.`
+                  : `📚 ${activeLoansCount} of ${MAX_LOANS} books currently borrowed/pending`}
+              </span>
             </div>
 
             <form onSubmit={submitBorrow} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <label style={modalLabelStyle}>How many copies?</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={borrowBook.quantity ?? 1}
-                  value={borrowQty}
-                  onChange={(e) => setBorrowQty(e.target.value.replace(/\D/g, '') || '1')}
-                  style={modalInputStyle}
-                />
-                <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
-                  Up to {borrowBook.quantity ?? 1} copies of this title.
-                </p>
-              </div>
-
               <div>
                 <label style={modalLabelStyle}>Return on or before</label>
                 <input
@@ -299,7 +319,7 @@ export default function StudentCatalog() {
 
               <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
                 <button type="button" onClick={closeBorrowModal} style={modalCancelStyle}>Cancel</button>
-                <button type="submit" disabled={addingId === borrowBook.id} style={modalSubmitStyle}>
+                <button type="submit" disabled={addingId === borrowBook.id || activeLoansCount >= MAX_LOANS} style={{ ...modalSubmitStyle, opacity: activeLoansCount >= MAX_LOANS ? 0.5 : 1, cursor: activeLoansCount >= MAX_LOANS ? 'not-allowed' : 'pointer' }}>
                   {addingId === borrowBook.id ? 'Submitting…' : 'Send Request'}
                 </button>
               </div>
