@@ -16,6 +16,6 @@ export function getConnection() {
 }
 
 export function getBaseURL() {
-  if (!config.ip) return null;
+  if (!config.ip) return '';
   return `http://${config.ip}:${config.port}`;
 }
