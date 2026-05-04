@@ -877,8 +877,11 @@ export default function Inventory() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ textAlign: 'left', background: '#F5FAE8', color: '#475569' }}>
+                <th style={thStyle}>Accession / Code No.</th>
                 <th style={thStyle}>Title</th>
                 <th style={thStyle}>Author</th>
+                <th style={thStyle}>Classification / Subject</th>
+                <th style={thStyle}>Copyright Year</th>
                 <th style={thStyle}>Qty</th>
                 <th style={thStyle}>Physical Copies</th>
                 <th style={thStyle}>Actions</th>
@@ -886,16 +889,18 @@ export default function Inventory() {
             </thead>
             <tbody>
               {books.length === 0 ? (
-                <tr><td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No physical books found. Add one using the button above.</td></tr>
+                <tr><td colSpan="8" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No physical books found. Add one using the button above.</td></tr>
               ) : (
                 books.map(book => (
                   <React.Fragment key={book.id}>
                     <tr style={{ borderBottom: expandedBookId === book.id ? 'none' : '1px solid #f1f5f9' }}>
                       <td style={tdStyle}>
-                        <strong>{book.title}</strong>
-                        <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '2px' }}>Acc# {book.accession_num}</div>
+                        <code style={{ background: '#F5FAE8', color: 'var(--maroon)', padding: '2px 8px', borderRadius: '4px', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '0.82rem' }}>{book.accession_num || '—'}</code>
                       </td>
+                      <td style={tdStyle}><strong>{book.title}</strong></td>
                       <td style={tdStyle}>{book.authors}</td>
+                      <td style={tdStyle}>{book.subject_class || '—'}</td>
+                      <td style={tdStyle}>{book.copyright || '—'}</td>
                       <td style={tdStyle}>
                         <span style={{ fontWeight: 'bold', color: book.quantity > 0 ? 'var(--green)' : '#ef4444' }}>
                           {book.quantity}
@@ -931,7 +936,7 @@ export default function Inventory() {
                     {/* EXPANDED COPIES PANEL */}
                     {expandedBookId === book.id && (
                       <tr>
-                        <td colSpan="5" style={{ padding: 0, borderBottom: '1px solid #f1f5f9' }}>
+                        <td colSpan="8" style={{ padding: 0, borderBottom: '1px solid #f1f5f9' }}>
                           <div style={{ background: '#f8fafc', padding: '16px 24px', borderTop: '1px dashed #e2e8f0' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                               <p style={{ margin: 0, fontWeight: 'bold', color: '#1e293b', fontSize: '0.9rem' }}>
@@ -1189,138 +1194,94 @@ export default function Inventory() {
       {/* PHYSICAL BOOK MODAL */}
       {showModal && (
         <div style={modalOverlayStyle}>
-          <div style={modalContentStyle}>
-            <h3 style={{ color: 'var(--maroon)', marginBottom: '20px' }}>
-              {isEditing ? 'Update Book Details' : 'Register New Book'}
+          <div style={{ ...modalContentStyle, maxWidth: '520px' }}>
+            <h3 style={{ color: 'var(--maroon)', marginBottom: '6px' }}>
+              📚 {isEditing ? 'Update Book Details' : 'Register New Book'}
             </h3>
+            <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '22px' }}>
+              Fill in the book information below. All fields marked with * are required.
+            </p>
             <form onSubmit={handleSaveBook}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                {/* LEFT: form fields */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div style={{ ...inputGroup, background: '#F5FAE8', padding: '10px', borderRadius: '8px' }}>
-                    <label style={labelStyle}>Accession # <span style={{ color: '#94a3b8', fontWeight: 'normal', textTransform: 'none' }}>(book-level)</span></label>
-                    <input
-                      type="text" required style={inputStyle}
-                      value={formData.accession_num}
-                      onChange={e => {
-                        const acc = e.target.value;
-                        setFormData({ ...formData, accession_num: acc, barcode: isEditing ? formData.barcode : generateBarcode(acc) });
-                      }}
-                    />
-                  </div>
-                  <div style={inputGroup}>
-                    <label style={labelStyle}>ISBN</label>
-                    <input type="text" style={inputStyle} value={formData.isbn || ''} onChange={e => setFormData({ ...formData, isbn: e.target.value })} />
-                  </div>
-                  <div style={inputGroup}>
-                    <label style={labelStyle}>Title</label>
-                    <input type="text" required style={inputStyle} value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
-                  </div>
-                  <div style={inputGroup}>
-                    <label style={labelStyle}>Authors</label>
-                    <input type="text" required style={inputStyle} value={formData.authors} onChange={e => setFormData({ ...formData, authors: e.target.value })} />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <div style={inputGroup}>
-                      <label style={labelStyle}>
-                        Number of Copies
-                        {!migrationNeeded && <span style={{ color: 'var(--green)', marginLeft: '4px' }}>✓ auto-generates copy barcodes</span>}
-                      </label>
-                      <input type="number" min="1" style={inputStyle} value={formData.quantity}
-                        onChange={e => setFormData({ ...formData, quantity: e.target.value })} />
-                    </div>
-                    <div style={inputGroup}>
-                      <label style={labelStyle}>Subject Class</label>
-                      <input type="text" style={inputStyle} value={formData.subject_class || ''} onChange={e => setFormData({ ...formData, subject_class: e.target.value })} />
-                    </div>
-                  </div>
-                  <div style={inputGroup}>
-                    <label style={labelStyle}>Publisher</label>
-                    <input type="text" style={inputStyle} value={formData.publisher || ''} onChange={e => setFormData({ ...formData, publisher: e.target.value })} />
-                  </div>
-                  <div style={inputGroup}>
-                    <label style={labelStyle}>Date Acquired</label>
-                    <input type="date" style={inputStyle} value={formData.date_acquired || ''} onChange={e => setFormData({ ...formData, date_acquired: e.target.value })} />
-                  </div>
-                  <div style={inputGroup}>
-                    <label style={labelStyle}>Edition</label>
-                    <input type="text" style={inputStyle} value={formData.edition || ''} onChange={e => setFormData({ ...formData, edition: e.target.value })} />
-                  </div>
-                  <div style={inputGroup}>
-                    <label style={labelStyle}>Pages</label>
-                    <input type="text" style={inputStyle} value={formData.pages || ''} onChange={e => setFormData({ ...formData, pages: e.target.value })} />
-                  </div>
-                  <div style={inputGroup}>
-                    <label style={labelStyle}>Copyright</label>
-                    <input type="text" style={inputStyle} value={formData.copyright || ''} onChange={e => setFormData({ ...formData, copyright: e.target.value })} />
-                  </div>
-                  <div style={inputGroup}>
-                    <label style={labelStyle}>Remark</label>
-                    <input type="text" style={inputStyle} value={formData.remark || ''} onChange={e => setFormData({ ...formData, remark: e.target.value })} />
-                  </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+
+                <div style={{ ...inputGroup, background: '#F5FAE8', padding: '10px 12px', borderRadius: '8px' }}>
+                  <label style={labelStyle}>* Accession / Code No.</label>
+                  <input
+                    type="text" required style={inputStyle}
+                    placeholder="e.g. 00001"
+                    value={formData.accession_num}
+                    onChange={e => {
+                      const acc = e.target.value;
+                      setFormData({ ...formData, accession_num: acc, barcode: isEditing ? formData.barcode : generateBarcode(acc) });
+                    }}
+                  />
                 </div>
 
-                {/* RIGHT: cover upload + barcode preview */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={inputGroup}>
+                  <label style={labelStyle}>* Title</label>
+                  <input
+                    type="text" required style={inputStyle}
+                    placeholder="e.g. Introduction to Biology"
+                    value={formData.title}
+                    onChange={e => setFormData({ ...formData, title: e.target.value })}
+                  />
+                </div>
 
-                  {/* Cover image uploader */}
-                  <div>
-                    <p style={{ margin: '0 0 6px', fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Cover Image <span style={{ color: '#94a3b8', fontWeight: 'normal', textTransform: 'none' }}>(max 5 MB)</span></p>
+                <div style={inputGroup}>
+                  <label style={labelStyle}>* Author</label>
+                  <input
+                    type="text" required style={inputStyle}
+                    placeholder="e.g. Juan dela Cruz"
+                    value={formData.authors}
+                    onChange={e => setFormData({ ...formData, authors: e.target.value })}
+                  />
+                </div>
 
-                    {coverColAvailable === false ? (
-                      <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '10px', padding: '14px' }}>
-                        <p style={{ margin: '0 0 8px', fontSize: '0.8rem', color: '#92400e', fontWeight: 'bold' }}>⚠️ cover_image column missing</p>
-                        <code style={{ display: 'block', background: '#1e293b', color: '#86efac', padding: '10px 12px', borderRadius: '6px', fontSize: '0.75rem', fontFamily: 'monospace', whiteSpace: 'pre' }}>ALTER TABLE books{'\n'}ADD COLUMN IF NOT EXISTS{'\n'}cover_image TEXT;</code>
-                      </div>
-                    ) : (
-                      <>
-                        <input ref={coverInputRef} type="file" accept="image/*" style={{ display: 'none' }}
-                          onChange={e => handleCoverChange(e.target.files[0])} />
-                        {coverPreview ? (
-                          <div style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #e2e8f0', background: '#f8fafc' }}>
-                            <img src={coverPreview} alt="Cover preview"
-                              style={{ display: 'block', width: '100%', maxHeight: '200px', objectFit: 'contain' }} />
-                            <div style={{ display: 'flex', gap: '6px', padding: '8px', justifyContent: 'flex-end', background: 'rgba(255,255,255,0.9)' }}>
-                              <button type="button" onClick={() => coverInputRef.current.click()}
-                                style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer', color: '#334155' }}>
-                                Change
-                              </button>
-                              <button type="button" onClick={() => { setCoverFile(null); setCoverPreview(null); setFormData(f => ({ ...f, cover_image: null })); }}
-                                style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '6px', border: '1px solid #fca5a5', background: '#fff1f2', cursor: 'pointer', color: '#dc2626' }}>
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div
-                            onClick={() => coverInputRef.current.click()}
-                            onDragOver={e => { e.preventDefault(); setCoverDragOver(true); }}
-                            onDragLeave={() => setCoverDragOver(false)}
-                            onDrop={e => { e.preventDefault(); setCoverDragOver(false); handleCoverChange(e.dataTransfer.files[0]); }}
-                            style={{ border: `2px dashed ${coverDragOver ? 'var(--maroon)' : '#cbd5e1'}`, borderRadius: '10px', padding: '24px 12px', textAlign: 'center', cursor: 'pointer', background: coverDragOver ? '#fff8f8' : '#f8fafc', transition: 'all 0.15s' }}
-                          >
-                            <div style={{ fontSize: '2rem', marginBottom: '6px' }}>🖼️</div>
-                            <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>Click or drag & drop to upload cover</p>
-                            <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: '#94a3b8' }}>JPG, PNG, WEBP — max 5 MB</p>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
+                <div style={inputGroup}>
+                  <label style={labelStyle}>* Classification / Subject</label>
+                  <input
+                    type="text" required style={inputStyle}
+                    placeholder="e.g. Science, Mathematics, Filipino"
+                    value={formData.subject_class || ''}
+                    onChange={e => setFormData({ ...formData, subject_class: e.target.value })}
+                  />
+                </div>
 
-                  {/* Copy barcode preview notice */}
-                  {!migrationNeeded && !isEditing && (
-                    <div style={{ background: '#F5FAE8', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '14px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '1.5rem', marginBottom: '6px' }}>🏷️</div>
-                      <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--green)' }}>
+                <div style={inputGroup}>
+                  <label style={labelStyle}>* Copyright Year</label>
+                  <input
+                    type="text" required style={inputStyle}
+                    placeholder="e.g. 2024"
+                    value={formData.copyright || ''}
+                    onChange={e => setFormData({ ...formData, copyright: e.target.value })}
+                  />
+                </div>
+
+                <div style={inputGroup}>
+                  <label style={labelStyle}>
+                    Number of Copies
+                    {!migrationNeeded && <span style={{ color: 'var(--green)', marginLeft: '6px', fontWeight: 'normal', textTransform: 'none' }}>✓ auto-generates barcodes</span>}
+                  </label>
+                  <input
+                    type="number" min="1" style={inputStyle}
+                    value={formData.quantity}
+                    onChange={e => setFormData({ ...formData, quantity: e.target.value })}
+                  />
+                </div>
+
+                {!migrationNeeded && !isEditing && (
+                  <div style={{ background: '#F5FAE8', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.4rem' }}>🏷️</span>
+                    <div>
+                      <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--green)' }}>
                         {formData.quantity || 1} unique copy {parseInt(formData.quantity) === 1 ? 'barcode' : 'barcodes'} will be generated
                       </p>
-                      <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: '#64748b' }}>
-                        Each physical copy gets its own scannable accession ID (e.g. LIB-{new Date().getFullYear()}-000001)
+                      <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: '#64748b' }}>
+                        Each copy gets its own scannable accession ID
                       </p>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               <div style={modalFooter}>
