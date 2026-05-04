@@ -15,13 +15,15 @@ export default function WalkIn() {
     fullName: '',
     gradeSection: '',
     lrn: '',
-    teacherName: '',
+    adviser: '',
+    contact: '',
   });
 
   // Teacher flow — fillable form
   const [teacherForm, setTeacherForm] = useState({
     fullName: '',
     employeeId: '',
+    position: '',
     gradeSection: '',
     contact: '',
   });
@@ -89,8 +91,8 @@ export default function WalkIn() {
     setBorrowerType(null);
     setBorrowList([]);
     setBookQuery('');
-    setStudentForm({ fullName: '', gradeSection: '', lrn: '', teacherName: '' });
-    setTeacherForm({ fullName: '', employeeId: '', gradeSection: '', contact: '' });
+    setStudentForm({ fullName: '', gradeSection: '', lrn: '', adviser: '', contact: '' });
+    setTeacherForm({ fullName: '', employeeId: '', position: '', gradeSection: '', contact: '' });
   };
 
   const addBook = (b) => {
@@ -127,21 +129,23 @@ export default function WalkIn() {
   };
 
   const validateStudentForm = () => {
-    const { fullName, gradeSection, lrn, teacherName } = studentForm;
-    if (!fullName.trim()) return 'Full name is required.';
-    if (!gradeSection.trim()) return 'Grade & section (or strand) is required.';
+    const { fullName, gradeSection, lrn, adviser, contact } = studentForm;
+    if (!fullName.trim()) return 'Student name is required.';
+    if (!gradeSection.trim()) return 'Track / Strand / Grade is required.';
     if (!lrn.trim()) return 'LRN is required.';
     if (!/^\d{12}$/.test(lrn.trim())) return 'LRN must be exactly 12 digits.';
-    if (!teacherName.trim()) return 'Teacher\'s name is required.';
+    if (!adviser.trim()) return 'Adviser name is required.';
+    if (!contact.trim()) return 'Contact info or email is required.';
     return null;
   };
 
   const validateTeacherForm = () => {
-    const { fullName, employeeId, gradeSection, contact } = teacherForm;
-    if (!fullName.trim()) return 'Full name is required.';
-    if (!employeeId.trim()) return 'Employee ID is required.';
-    if (!gradeSection.trim()) return 'Grade & section / strand is required.';
-    if (!contact.trim()) return 'Contact number or email is required.';
+    const { fullName, employeeId, position, gradeSection, contact } = teacherForm;
+    if (!fullName.trim()) return 'Teacher name is required.';
+    if (!employeeId.trim()) return 'Employee No. is required.';
+    if (!position.trim()) return 'Position / Designation is required.';
+    if (!gradeSection.trim()) return 'Track / Strand is required.';
+    if (!contact.trim()) return 'Contact info or email is required.';
     return null;
   };
 
@@ -187,15 +191,17 @@ export default function WalkIn() {
             copy_id: copy?.id || null,
           };
           if (isTeacher) {
-            payload.walk_in_name = teacherForm.fullName.trim();
-            payload.walk_in_employee_id = teacherForm.employeeId.trim();
+            payload.walk_in_name          = teacherForm.fullName.trim();
+            payload.walk_in_employee_id   = teacherForm.employeeId.trim();
+            payload.walk_in_position      = teacherForm.position.trim();
             payload.walk_in_grade_section = teacherForm.gradeSection.trim();
-            payload.walk_in_contact = teacherForm.contact.trim();
+            payload.walk_in_contact       = teacherForm.contact.trim();
           } else {
-            payload.walk_in_name = studentForm.fullName.trim();
+            payload.walk_in_name          = studentForm.fullName.trim();
             payload.walk_in_grade_section = studentForm.gradeSection.trim();
-            payload.walk_in_lrn = studentForm.lrn.trim();
-            payload.walk_in_teacher = studentForm.teacherName.trim();
+            payload.walk_in_lrn           = studentForm.lrn.trim();
+            payload.walk_in_teacher       = studentForm.adviser.trim();
+            payload.walk_in_contact       = studentForm.contact.trim();
           }
 
           const { error: txnErr } = await localDbAdmin
@@ -304,35 +310,41 @@ export default function WalkIn() {
 
             {isTeacher ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
-                <Field label="Full Name *" value={teacherForm.fullName}
+                <Field label="Name *" value={teacherForm.fullName}
                   onChange={(v) => setTeacherForm(f => ({ ...f, fullName: v }))}
                   placeholder="Ms. Maria Reyes" />
-                <Field label="Employee ID *" value={teacherForm.employeeId}
+                <Field label="Employee No *" value={teacherForm.employeeId}
                   onChange={(v) => setTeacherForm(f => ({ ...f, employeeId: v }))}
                   placeholder="EMP-2026-001" />
-                <Field label="Grade & Section / Strand *" value={teacherForm.gradeSection}
+                <Field label="Position / Designation *" value={teacherForm.position}
+                  onChange={(v) => setTeacherForm(f => ({ ...f, position: v }))}
+                  placeholder="e.g. Teacher I, Master Teacher II" />
+                <Field label="Track / Strand *" value={teacherForm.gradeSection}
                   onChange={(v) => setTeacherForm(f => ({ ...f, gradeSection: v }))}
-                  placeholder="Grade 7 - Section A  /  Grade 11 - STEM A" />
-                <Field label="Contact Number / Email *" value={teacherForm.contact}
+                  placeholder="e.g. STEM, HUMSS, ABM" />
+                <Field label="Contact Info / Email *" value={teacherForm.contact}
                   onChange={(v) => setTeacherForm(f => ({ ...f, contact: v }))}
                   placeholder="0917-123-4567 or m.reyes@school.edu" />
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
-                <Field label="Full Name *" value={studentForm.fullName}
+                <Field label="Name *" value={studentForm.fullName}
                   onChange={(v) => setStudentForm(f => ({ ...f, fullName: v }))}
                   placeholder="Juan Dela Cruz" />
-                <Field label="Grade & Section / Strand *" value={studentForm.gradeSection}
+                <Field label="Track / Strand / Grade *" value={studentForm.gradeSection}
                   onChange={(v) => setStudentForm(f => ({ ...f, gradeSection: v }))}
-                  placeholder="Grade 1 to Grade 12 (e.g. Grade 8 - Section B, Grade 12 - HUMSS)" />
+                  placeholder="e.g. Grade 8 - Section B, Grade 12 - HUMSS" />
                 <Field label="LRN * (12 digits)" value={studentForm.lrn}
                   onChange={(v) => setStudentForm(f => ({ ...f, lrn: v.replace(/\D/g, '').slice(0, 12) }))}
                   placeholder="123456789012"
                   inputMode="numeric"
                   maxLength={12} />
-                <Field label="Teacher's Name *" value={studentForm.teacherName}
-                  onChange={(v) => setStudentForm(f => ({ ...f, teacherName: v }))}
-                  placeholder="Ms. Reyes" />
+                <Field label="Adviser *" value={studentForm.adviser}
+                  onChange={(v) => setStudentForm(f => ({ ...f, adviser: v }))}
+                  placeholder="e.g. Ms. Reyes" />
+                <Field label="Contact Info / Email *" value={studentForm.contact}
+                  onChange={(v) => setStudentForm(f => ({ ...f, contact: v }))}
+                  placeholder="e.g. 0917-123-4567 or juan@email.com" />
               </div>
             )}
           </section>

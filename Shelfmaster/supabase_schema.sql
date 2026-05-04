@@ -95,9 +95,11 @@ create table if not exists transactions (
   walk_in_employee_id   text,
   walk_in_department    text,
   walk_in_contact       text,
+  walk_in_position      text,
   created_at            timestamptz default now()
 );
-alter table transactions add column if not exists fine_amount numeric(10,2) default 0;
+alter table transactions add column if not exists fine_amount    numeric(10,2) default 0;
+alter table transactions add column if not exists walk_in_position text;
 create index if not exists transactions_user_id_idx  on transactions(user_id);
 create index if not exists transactions_book_id_idx  on transactions(book_id);
 create index if not exists transactions_copy_id_idx  on transactions(copy_id);

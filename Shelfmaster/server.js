@@ -714,6 +714,7 @@ async function checkSupabaseReachable() {
     }
     if (error) throw error;
     console.log(`[db] Supabase reachable at ${SUPABASE_URL}`);
+    await runColumnMigrations();
   } catch (err) {
     console.error('\n========================================');
     console.error(' ❌ Cannot reach Supabase');
@@ -722,6 +723,38 @@ async function checkSupabaseReachable() {
     console.error(` Error: ${err.message}`);
     console.error('========================================\n');
   }
+}
+
+async function runColumnMigrations() {
+  const migrations = [
+    {
+      check: () => supabase.from('transactions').select('walk_in_position').limit(1),
+      sql: 'ALTER TABLE transactions ADD COLUMN IF NOT EXISTS walk_in_position text;',
+      label: 'walk_in_position',
+    },
+  ];
+
+  const missing = [];
+  for (const m of migrations) {
+    const { error } = await m.check();
+    if (error && error.code === '42703') missing.push(m);
+  }
+
+  if (missing.length === 0) {
+    console.log('[db] Schema columns up to date.');
+    return;
+  }
+
+  console.warn('\n========================================');
+  console.warn(' ⚠️  Missing database columns detected.');
+  console.warn('========================================');
+  console.warn(' Run the following SQL in your Supabase project');
+  console.warn(' → SQL Editor → New query → paste → Run:');
+  console.warn('');
+  for (const m of missing) console.warn('   ' + m.sql);
+  console.warn('');
+  console.warn(' Or re-run the full supabase_schema.sql file.');
+  console.warn('========================================\n');
 }
 
 app.listen(port, '0.0.0.0', async () => {
