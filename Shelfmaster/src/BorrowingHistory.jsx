@@ -12,6 +12,9 @@ function isMigrationError(error) {
     msg.includes('book_copies') ||
     msg.includes('copy_id') ||
     msg.includes('schema cache') ||
+    msg.includes('fines') ||
+    msg.includes('fine_id') ||
+    msg.includes('does not exist') ||
     error.code === '42P01' ||
     error.code === 'PGRST200'
   );
@@ -67,7 +70,7 @@ export default function BorrowingHistory() {
 
   async function fetchFinePolicy() {
     const { data } = await localDbAdmin
-      .from('site_content')
+      .from('fine_policy')
       .select('fine_amount, fine_increment_type')
       .limit(1)
       .maybeSingle();
@@ -301,6 +304,48 @@ export default function BorrowingHistory() {
     }
   };
 
+  const downloadCSV = (data, fileName) => {
+    try {
+      const headers = ['Student', 'Student ID', 'Book Title', 'Accession ID', 'Copy #', 'Status', 'Borrow Date', 'Due Date', 'Return Date', 'Overdue', 'Fine (PHP)'];
+      const escape = (val) => {
+        const str = val == null ? '' : String(val);
+        return str.includes(',') || str.includes('"') || str.includes('\n')
+          ? `"${str.replace(/"/g, '""')}"`
+          : str;
+      };
+      const rows = data.map(item => {
+        const overdue = isOverdue(item);
+        const fineAmt = getFineAmount(item);
+        const estFine = overdue && fineAmt === 0 ? computeFine(item.due_date).toFixed(2) : '';
+        return [
+          item.users?.name || selectedStudent?.name || '',
+          item.users?.student_id || '',
+          item.books?.title || '',
+          item.book_copies?.accession_id || item.books?.accession_num || '',
+          item.book_copies?.copy_number || '',
+          item.status || '',
+          item.borrow_date ? new Date(item.borrow_date).toLocaleDateString() : '',
+          item.due_date ? new Date(item.due_date).toLocaleDateString() : '',
+          item.return_date ? new Date(item.return_date).toLocaleDateString() : '',
+          overdue ? 'YES' : 'NO',
+          fineAmt > 0 ? fineAmt.toFixed(2) : (estFine || ''),
+        ].map(escape).join(',');
+      });
+      const csv = [headers.map(escape).join(','), ...rows].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast('CSV exported successfully.', 'success');
+    } catch (err) {
+      console.error('CSV Export failed:', err);
+      showToast('Failed to export CSV. Please try again.', 'error');
+    }
+  };
+
   return (
     <div style={{ padding: '20px', maxWidth: '1200px' }}>
       <Toast {...toast} onClose={() => setToast({ message: '' })} />
@@ -416,6 +461,16 @@ export default function BorrowingHistory() {
                     ✕ Clear Filter
                   </button>
                 )}
+                <button
+                  onClick={() => {
+                    const name = selectedStudent ? selectedStudent.name : 'Library';
+                    const fileName = selectedStudent ? `${name}_History.csv` : 'Library_Activity.csv';
+                    downloadCSV(displayData, fileName);
+                  }}
+                  style={{ background: '#16a34a', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+                >
+                  Export CSV
+                </button>
                 <button
                   onClick={() => {
                     if (selectedStudent) {
