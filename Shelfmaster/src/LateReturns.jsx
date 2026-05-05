@@ -5,7 +5,7 @@ import { localDbAdmin } from './localDbAdmin';
 export default function LateReturns() {
   const [lateBooks, setLateBooks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [finePolicy, setFinePolicy] = useState({ fine_amount: 5, fine_increment_type: 'per_day' });
+  const [finePolicy, setFinePolicy] = useState({ fine_amount: 5, fine_increment_value: 1, fine_increment_type: 'per_day' });
 
   useEffect(() => {
     fetchFinePolicy();
@@ -15,12 +15,13 @@ export default function LateReturns() {
   async function fetchFinePolicy() {
     const { data } = await localDbAdmin
       .from('site_content')
-      .select('fine_per_day, fine_amount, fine_increment_type')
+      .select('fine_per_day, fine_amount, fine_increment_value, fine_increment_type')
       .limit(1)
       .maybeSingle();
     if (data) {
       setFinePolicy({
         fine_amount: data.fine_amount ?? data.fine_per_day ?? 5,
+        fine_increment_value: Math.max(1, Number(data.fine_increment_value ?? 1)),
         fine_increment_type: data.fine_increment_type || 'per_day',
       });
     }
@@ -70,7 +71,9 @@ export default function LateReturns() {
 
   const computeFine = (dueDate, policy) => {
     const units = computeOverdueUnits(dueDate, policy);
-    return units * (policy.fine_amount ?? 5);
+    const incrValue = Math.max(1, policy.fine_increment_value || 1);
+    const charges = Math.floor(units / incrValue);
+    return charges * (policy.fine_amount ?? 5);
   };
 
   const fineLabel = finePolicy.fine_increment_type === 'per_hour' ? 'hour' : 'day';
@@ -96,7 +99,7 @@ export default function LateReturns() {
           <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '14px 20px', flex: 1 }}>
             <div style={{ fontSize: '0.82rem', color: '#15803d', fontWeight: 600 }}>Fine Policy</div>
             <div style={{ fontSize: '0.9rem', color: '#166534', marginTop: '4px' }}>
-              ₱{finePolicy.fine_amount} per {fineLabel}
+              ₱{finePolicy.fine_amount} per {finePolicy.fine_increment_value > 1 ? `${finePolicy.fine_increment_value} ` : ''}{fineLabel}{finePolicy.fine_increment_value > 1 ? 's' : ''}
             </div>
           </div>
         </div>
@@ -119,7 +122,7 @@ export default function LateReturns() {
                 <th style={{ padding: '12px 16px', color: '#7f1d1d', fontWeight: 700 }}>Copy</th>
                 <th style={{ padding: '12px 16px', color: '#7f1d1d', fontWeight: 700 }}>Due Date</th>
                 <th style={{ padding: '12px 16px', color: '#7f1d1d', fontWeight: 700 }}>Overdue ({fineLabel}s)</th>
-                <th style={{ padding: '12px 16px', color: '#7f1d1d', fontWeight: 700 }}>Accrued Fine (₱{finePolicy.fine_amount}/{fineLabel})</th>
+                <th style={{ padding: '12px 16px', color: '#7f1d1d', fontWeight: 700 }}>Accrued Fine (₱{finePolicy.fine_amount}/{finePolicy.fine_increment_value > 1 ? `${finePolicy.fine_increment_value} ` : ''}{fineLabel})</th>
                 <th style={{ padding: '12px 16px', color: '#7f1d1d', fontWeight: 700 }}>Status</th>
               </tr>
             </thead>

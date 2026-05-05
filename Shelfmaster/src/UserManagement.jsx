@@ -23,7 +23,7 @@ export default function UserManagement() {
     setLoading(true);
     const { data, error } = await localDbAdmin
       .from('users')
-      .select('*, transactions (id, status)')
+      .select('*, auth_id, transactions (id, status)')
       .eq('role', 'student')
       .order('name', { ascending: true });
 
@@ -48,22 +48,13 @@ export default function UserManagement() {
     if (!window.confirm(`Archive ${user.name}? They will no longer appear in the active list and cannot log in.`)) return;
     try {
       const base = getBaseURL();
-      if (base) {
-        const res = await fetch(`${base}/api/users/${user.id}/archive`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-        });
-        if (!res.ok) throw new Error((await res.json()).error || 'Archive failed');
-      } else {
-        // Fallback: update directly via admin DB
-        const { error } = await localDbAdmin
-          .from('users')
-          .update({ archived_at: new Date().toISOString(), status: 'inactive' })
-          .eq('id', user.id);
-        if (error) throw new Error(error.message);
-      }
+      const res = await fetch(`${base}/api/users/${user.id}/archive`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Archive failed');
       showToast(`${user.name} archived.`);
-      fetchUsers();
+      await fetchUsers();
     } catch (e) {
       showToast('Error: ' + e.message, 'error');
     }
@@ -72,55 +63,37 @@ export default function UserManagement() {
   async function handleUnarchive(user) {
     try {
       const base = getBaseURL();
-      if (base) {
-        const res = await fetch(`${base}/api/users/${user.id}/unarchive`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-        });
-        if (!res.ok) throw new Error((await res.json()).error || 'Restore failed');
-      } else {
-        const { error } = await localDbAdmin
-          .from('users')
-          .update({ archived_at: null, status: 'active' })
-          .eq('id', user.id);
-        if (error) throw new Error(error.message);
-      }
+      const res = await fetch(`${base}/api/users/${user.id}/unarchive`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Restore failed');
       showToast(`${user.name} restored.`);
-      fetchUsers();
+      await fetchUsers();
     } catch (e) {
       showToast('Error: ' + e.message, 'error');
     }
   }
 
   async function handleDelete(user) {
-    if (!window.confirm(
-      `PERMANENTLY DELETE ${user.name}?\n\nThis removes their account and all associated history. ` +
-      `This cannot be undone. Type OK in the next prompt to confirm.`
-    )) return;
-    const typed = window.prompt(`Type DELETE to confirm permanent deletion of ${user.name}:`);
-    if (typed !== 'DELETE') {
-      showToast('Deletion cancelled.', 'error');
+    // Safety: user must be archived first
+    if (!user.archived_at) {
+      showToast('Archive this student first before deleting.', 'error');
       return;
     }
+    if (!window.confirm(
+      `Permanently delete ${user.name}?\n\nThis cannot be undone.`
+    )) return;
     try {
       const base = getBaseURL();
-      if (base) {
-        const res = await fetch(`${base}/api/users/${user.id}`, {
-          method: 'DELETE',
-          headers: getAuthHeaders(),
-        });
-        if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
-      } else {
-        // Fallback: delete directly via admin DB
-        const { error } = await localDbAdmin
-          .from('users')
-          .delete()
-          .eq('id', user.id);
-        if (error) throw new Error(error.message);
-      }
-      showToast(`${user.name} deleted.`);
+      const res = await fetch(`${base}/api/users/${user.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
+      showToast(`${user.name} permanently deleted.`);
       if (selectedUser?.id === user.id) setSelectedUser(null);
-      fetchUsers();
+      await fetchUsers();
     } catch (e) {
       showToast('Error: ' + e.message, 'error');
     }
@@ -287,17 +260,19 @@ export default function UserManagement() {
                         <td style={{ padding: '15px 20px' }}>
                           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                             {archived ? (
-                              <button onClick={() => handleUnarchive(user)} style={actionBtn('#10b981')}>
-                                Restore
-                              </button>
+                              <>
+                                <button onClick={() => handleUnarchive(user)} style={actionBtn('#10b981')}>
+                                  Restore
+                                </button>
+                                <button onClick={() => handleDelete(user)} style={actionBtn('#ef4444')}>
+                                  Delete
+                                </button>
+                              </>
                             ) : (
                               <button onClick={() => handleArchive(user)} style={actionBtn('#f59e0b')}>
                                 Archive
                               </button>
                             )}
-                            <button onClick={() => handleDelete(user)} style={actionBtn('#ef4444')}>
-                              Delete
-                            </button>
                           </div>
                         </td>
                       </tr>

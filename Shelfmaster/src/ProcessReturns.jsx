@@ -28,6 +28,7 @@ export default function ProcessReturns() {
   const [scanning, setScanning] = useState(false);
   const [scanFlash, setScanFlash] = useState(false);
   const [detectedCode, setDetectedCode] = useState('');
+  const [finePolicy, setFinePolicy] = useState({ fine_amount: 5, fine_increment_value: 1, fine_increment_type: 'per_day' });
 
   const inputRef = useRef(null);
   const videoRef = useRef(null);
@@ -37,6 +38,38 @@ export default function ProcessReturns() {
   const debounceRef = useRef(null);
 
   const showToast = (message, type = 'success') => setToast({ message, type });
+
+  async function fetchFinePolicy() {
+    const { data } = await localDbAdmin
+      .from('site_content')
+      .select('fine_per_day, fine_amount, fine_increment_value, fine_increment_type')
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      setFinePolicy({
+        fine_amount: data.fine_amount ?? data.fine_per_day ?? 5,
+        fine_increment_value: Math.max(1, Number(data.fine_increment_value ?? 1)),
+        fine_increment_type: data.fine_increment_type || 'per_day',
+      });
+    }
+  }
+
+  function computeOverdueUnits(dueDate, policy) {
+    if (!dueDate) return 0;
+    const ms = Date.now() - new Date(dueDate).getTime();
+    if (ms <= 0) return 0;
+    if (policy.fine_increment_type === 'per_hour') {
+      return Math.ceil(ms / (60 * 60 * 1000));
+    }
+    return Math.ceil(ms / (24 * 60 * 60 * 1000));
+  }
+
+  function computeFine(dueDate, policy) {
+    const units = computeOverdueUnits(dueDate, policy);
+    const incrValue = Math.max(1, policy.fine_increment_value || 1);
+    const charges = Math.floor(units / incrValue);
+    return charges * (policy.fine_amount ?? 5);
+  }
 
   function playBeep() {
     try {
@@ -62,6 +95,7 @@ export default function ProcessReturns() {
   }
 
   useEffect(() => {
+    fetchFinePolicy();
     fetchRecentReturns();
     if (inputRef.current) inputRef.current.focus();
     const onVisible = () => { if (!document.hidden) fetchRecentReturns(); };
@@ -234,7 +268,7 @@ export default function ProcessReturns() {
 
         const { data: transactions, error: transError } = await localDbAdmin
           .from('transactions')
-          .select('id, user_id, users(name), books(title)')
+          .select('id, user_id, due_date, users(name, email), books(title)')
           .eq('copy_id', copy.id)
           .eq('status', 'borrowed')
           .order('borrow_date', { ascending: true })
@@ -246,10 +280,16 @@ export default function ProcessReturns() {
         }
 
         const transaction = transactions[0];
+        const fineAmount = computeFine(transaction.due_date, finePolicy);
+        const overdueUnits = computeOverdueUnits(transaction.due_date, finePolicy);
+        const fineLabel = finePolicy.fine_increment_type === 'per_hour' ? 'hour' : 'day';
+
+        const transUpdate = { status: 'returned', return_date: new Date().toISOString() };
+        if (fineAmount > 0) transUpdate.fine_amount = fineAmount;
 
         const { error: updateTransError } = await localDbAdmin
           .from('transactions')
-          .update({ status: 'returned', return_date: new Date().toISOString() })
+          .update(transUpdate)
           .eq('id', transaction.id);
         if (updateTransError) throw updateTransError;
 
@@ -271,7 +311,27 @@ export default function ProcessReturns() {
             .eq('id', copy.book_id);
         }
 
-        showToast(`Copy ${copy.accession_id} returned by ${transaction.users?.name}. Marked available.`, 'success');
+        showToast(
+          fineAmount > 0
+            ? `Copy ${copy.accession_id} returned by ${transaction.users?.name}. Overdue ${overdueUnits} ${fineLabel}(s). Fine: ₱${fineAmount.toFixed(2)}.`
+            : `Copy ${copy.accession_id} returned by ${transaction.users?.name}. Marked available.`,
+          'success'
+        );
+
+        // Send notification if user exists
+        if (transaction.user_id) {
+          await localDbAdmin.from('notifications').insert([{
+            user_id: transaction.user_id,
+            type: fineAmount > 0 ? 'return_with_fine' : 'returned',
+            title: fineAmount > 0 ? 'Book returned — fine due' : 'Book returned',
+            body: fineAmount > 0
+              ? `Your return of "${transaction.books?.title}" was recorded. Overdue ${overdueUnits} ${fineLabel}(s). Fine due: ₱${fineAmount.toFixed(2)}.`
+              : `Your return of "${transaction.books?.title}" was recorded. Thank you!`,
+            email_sent: false,
+            read: false,
+          }]);
+        }
+
         fetchRecentReturns();
         return;
       }
@@ -289,7 +349,7 @@ export default function ProcessReturns() {
 
       const { data: transactions, error: transError } = await localDbAdmin
         .from('transactions')
-        .select('id, user_id, users(name)')
+        .select('id, user_id, due_date, users(name, email), books(title)')
         .eq('book_id', book.id)
         .eq('status', 'borrowed')
         .order('borrow_date', { ascending: true })
@@ -301,10 +361,16 @@ export default function ProcessReturns() {
       }
 
       const transaction = transactions[0];
+      const fineAmount = computeFine(transaction.due_date, finePolicy);
+      const overdueUnits = computeOverdueUnits(transaction.due_date, finePolicy);
+      const fineLabel = finePolicy.fine_increment_type === 'per_hour' ? 'hour' : 'day';
+
+      const transUpdate = { status: 'returned', return_date: new Date().toISOString() };
+      if (fineAmount > 0) transUpdate.fine_amount = fineAmount;
 
       const { error: updateTransError } = await localDbAdmin
         .from('transactions')
-        .update({ status: 'returned', return_date: new Date().toISOString() })
+        .update(transUpdate)
         .eq('id', transaction.id);
       if (updateTransError) throw updateTransError;
 
@@ -314,7 +380,27 @@ export default function ProcessReturns() {
         .eq('id', book.id);
       if (updateBookError) throw updateBookError;
 
-      showToast(`"${book.title}" returned by ${transaction.users?.name}. Stock updated.`, 'success');
+      showToast(
+        fineAmount > 0
+          ? `"${book.title}" returned by ${transaction.users?.name}. Overdue ${overdueUnits} ${fineLabel}(s). Fine: ₱${fineAmount.toFixed(2)}.`
+          : `"${book.title}" returned by ${transaction.users?.name}. Stock updated.`,
+        'success'
+      );
+
+      // Send notification if user exists
+      if (transaction.user_id) {
+        await localDbAdmin.from('notifications').insert([{
+          user_id: transaction.user_id,
+          type: fineAmount > 0 ? 'return_with_fine' : 'returned',
+          title: fineAmount > 0 ? 'Book returned — fine due' : 'Book returned',
+          body: fineAmount > 0
+            ? `Your return of "${book.title}" was recorded. Overdue ${overdueUnits} ${fineLabel}(s). Fine due: ₱${fineAmount.toFixed(2)}.`
+            : `Your return of "${book.title}" was recorded. Thank you!`,
+          email_sent: false,
+          read: false,
+        }]);
+      }
+
       fetchRecentReturns();
 
     } catch (err) {

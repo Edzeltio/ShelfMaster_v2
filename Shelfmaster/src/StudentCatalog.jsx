@@ -17,19 +17,50 @@ export default function StudentCatalog() {
 
   // Borrow modal state
   const [borrowBook, setBorrowBook] = useState(null);
-  const [borrowDueDate, setBorrowDueDate] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() + 7);
-    return d.toISOString().slice(0, 10);
-  });
+  const [borrowDueDate, setBorrowDueDate] = useState('');
   const [activeLoansCount, setActiveLoansCount] = useState(0);
-  const todayIso = new Date().toISOString().slice(0, 10);
   const MAX_LOANS = 3;
+
+  // Librarian-configured borrow & fine policy
+  const [borrowPolicy, setBorrowPolicy] = useState({
+    borrow_duration_value: 7,
+    borrow_duration_unit: 'days',
+    fine_amount: 5,
+    fine_increment_value: 1,
+    fine_increment_type: 'per_day',
+  });
+
+  // Load librarian policy once on mount
+  useEffect(() => {
+    localDb
+      .from('site_content')
+      .select('borrow_duration_value, borrow_duration_unit, fine_amount, fine_per_day, fine_increment_value, fine_increment_type')
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setBorrowPolicy({
+            borrow_duration_value: data.borrow_duration_value ?? 7,
+            borrow_duration_unit: data.borrow_duration_unit || 'days',
+            fine_amount: data.fine_amount ?? data.fine_per_day ?? 5,
+            fine_increment_value: Math.max(1, Number(data.fine_increment_value ?? 1)),
+            fine_increment_type: data.fine_increment_type || 'per_day',
+          });
+        }
+      });
+  }, []);
+
+  // Compute due date from librarian policy
+  function computeDueDate(policy) {
+    const ms = policy.borrow_duration_unit === 'hours'
+      ? policy.borrow_duration_value * 60 * 60 * 1000
+      : policy.borrow_duration_value * 24 * 60 * 60 * 1000;
+    return new Date(Date.now() + ms).toISOString().slice(0, 10);
+  }
 
   const openBorrowModal = async (book) => {
     setBorrowBook(book);
-    const d = new Date(); d.setDate(d.getDate() + 7);
-    setBorrowDueDate(d.toISOString().slice(0, 10));
-    // Fetch current active loans count
+    setBorrowDueDate(computeDueDate(borrowPolicy));
     try {
       const { data: { user } } = await localDb.auth.getUser();
       if (user) {
@@ -62,8 +93,6 @@ export default function StudentCatalog() {
     e?.preventDefault?.();
     if (!borrowBook) return;
     const book = borrowBook;
-    if (!borrowDueDate) { showToast('Please choose a return date.', 'warning'); return; }
-    if (borrowDueDate < todayIso) { showToast('Return date cannot be in the past.', 'warning'); return; }
     if (activeLoansCount >= MAX_LOANS) {
       showToast(`You already have ${activeLoansCount} book(s) borrowed or pending. Maximum is ${MAX_LOANS}.`, 'warning');
       return;
@@ -305,16 +334,32 @@ export default function StudentCatalog() {
             </div>
 
             <form onSubmit={submitBorrow} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <label style={modalLabelStyle}>Return on or before</label>
-                <input
-                  type="date"
-                  min={todayIso}
-                  value={borrowDueDate}
-                  onChange={(e) => setBorrowDueDate(e.target.value)}
-                  style={modalInputStyle}
-                  required
-                />
+
+              {/* Due date — set by librarian, not editable */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+                  📅 Return By (Set by Librarian)
+                </div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--maroon)' }}>
+                  {borrowDueDate
+                    ? new Date(borrowDueDate + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+                    : '—'}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: 3 }}>
+                  {borrowPolicy.borrow_duration_value} {borrowPolicy.borrow_duration_unit} loan period
+                </div>
+              </div>
+
+              {/* Fine policy info */}
+              <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+                <div>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#92400e' }}>Overdue Fine</div>
+                  <div style={{ fontSize: '0.85rem', color: '#78350f' }}>
+                    ₱{borrowPolicy.fine_amount} per {borrowPolicy.fine_increment_value > 1 ? `${borrowPolicy.fine_increment_value} ` : ''}
+                    {borrowPolicy.fine_increment_type === 'per_hour' ? (borrowPolicy.fine_increment_value > 1 ? 'hours' : 'hour') : (borrowPolicy.fine_increment_value > 1 ? 'days' : 'day')} overdue
+                  </div>
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
@@ -342,11 +387,6 @@ const modalCardStyle = {
 const modalCloseStyle = {
   background: '#f1f5f9', border: 'none', width: 30, height: 30,
   borderRadius: 8, fontSize: '0.9rem', cursor: 'pointer', color: '#64748b',
-};
-const modalLabelStyle = { display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#475569', marginBottom: 6 };
-const modalInputStyle = {
-  width: '100%', boxSizing: 'border-box', padding: '11px 14px',
-  borderRadius: 9, border: '1.5px solid #e2e8f0', fontSize: '0.95rem', background: 'var(--cream)', outline: 'none',
 };
 const modalCancelStyle = {
   flex: 1, padding: 11, borderRadius: 9, border: '1.5px solid #e2e8f0',

@@ -124,6 +124,11 @@ class QueryBuilder {
     return this;
   }
 
+  delete() {
+    this.action = 'delete';
+    return this;
+  }
+
   maybeSingle() {
     this.maybeSingleValue = true;
     return this;
