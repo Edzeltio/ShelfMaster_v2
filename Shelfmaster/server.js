@@ -434,6 +434,83 @@ app.post('/api/auth/resend-verification', async (req, res) => {
   }
 });
 
+// Sends a password reset email with a time-limited token.
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) { res.status(400).json({ error: 'Email is required.' }); return; }
+
+    const { data: row } = await supabase
+      .from('auth_users')
+      .select('id, email')
+      .eq('email', email)
+      .maybeSingle();
+
+    // Always respond the same way — don't leak whether the email exists
+    if (!row) { res.json({ ok: true }); return; }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+
+    await supabase.from('auth_users').update({
+      reset_token: token,
+      reset_token_expires: expires,
+    }).eq('id', row.id);
+
+    const base = APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const resetUrl = `${base}/reset-password?token=${token}`;
+
+    await sendMail({
+      to: email,
+      subject: 'Reset your ShelfMaster password',
+      html: htmlEmail({
+        heading: 'Password Reset',
+        body: `We received a request to reset the password for your ShelfMaster account.<br><br>This link expires in <strong>1 hour</strong>. If you did not request a reset, you can safely ignore this email.<br><br><span style="color:#64748b;font-size:13px">Or copy this link:<br><code style="word-break:break-all">${resetUrl}</code></span>`,
+        ctaUrl: resetUrl,
+        ctaLabel: 'Reset my password',
+      }),
+      text: `Reset your ShelfMaster password by visiting:\n${resetUrl}\n\nThis link expires in 1 hour.`,
+    });
+
+    res.json({ ok: true, mailer: getMailerMode(), resetUrl: getMailerMode() === 'console' ? resetUrl : null });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Validates the reset token and updates the password.
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const token    = String(req.body?.token    || '').trim();
+    const password = String(req.body?.password || '');
+    if (!token)    { res.status(400).json({ error: 'Reset token is required.' }); return; }
+    if (!password) { res.status(400).json({ error: 'New password is required.' }); return; }
+    if (password.length < 6) { res.status(400).json({ error: 'Password must be at least 6 characters.' }); return; }
+
+    const { data: row } = await supabase
+      .from('auth_users')
+      .select('id, reset_token_expires')
+      .eq('reset_token', token)
+      .maybeSingle();
+
+    if (!row) { res.status(400).json({ error: 'Invalid or expired reset link. Please request a new one.' }); return; }
+    if (row.reset_token_expires && new Date(row.reset_token_expires) < new Date()) {
+      res.status(400).json({ error: 'This reset link has expired. Please request a new one.' }); return;
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    await supabase.from('auth_users').update({
+      password_hash: passwordHash,
+      reset_token: null,
+      reset_token_expires: null,
+    }).eq('id', row.id);
+
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/auth/user', async (req, res) => {
   const user = await getUserFromRequest(req);
   if (!user) {
@@ -842,6 +919,16 @@ async function runColumnMigrations() {
       check: () => supabase.from('notifications').select('fine_id').limit(1),
       sql: 'ALTER TABLE notifications ADD COLUMN IF NOT EXISTS fine_id text REFERENCES fines(id) ON DELETE SET NULL;',
       label: 'notifications.fine_id',
+    },
+    {
+      check: () => supabase.from('auth_users').select('reset_token').limit(1),
+      sql: 'ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS reset_token text;',
+      label: 'auth_users.reset_token',
+    },
+    {
+      check: () => supabase.from('auth_users').select('reset_token_expires').limit(1),
+      sql: 'ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS reset_token_expires timestamptz;',
+      label: 'auth_users.reset_token_expires',
     },
   ];
 
