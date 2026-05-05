@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { BrowserMultiFormatReader } from '@zxing/browser';
+import React, { useState, useEffect, useRef } from 'react';
 import { localDb } from './localDbClient';
 import { localDbAdmin } from './localDbAdmin';
 import Toast from './Toast';
@@ -21,20 +20,9 @@ export default function ProcessReturns() {
   const [processing, setProcessing] = useState(false);
   const [recentReturns, setRecentReturns] = useState([]);
   const [toast, setToast] = useState({ message: '', type: 'success' });
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraError, setCameraError] = useState('');
-  const [cameras, setCameras] = useState([]);
-  const [selectedCamera, setSelectedCamera] = useState('');
-  const [scanning, setScanning] = useState(false);
-  const [scanFlash, setScanFlash] = useState(false);
-  const [detectedCode, setDetectedCode] = useState('');
   const [finePolicy, setFinePolicy] = useState({ fine_amount: 5, fine_increment_value: 1, fine_increment_type: 'per_day' });
 
   const inputRef = useRef(null);
-  const videoRef = useRef(null);
-  const readerRef = useRef(null);
-  const lastScannedRef = useRef('');
-  const processingRef = useRef(false);
   const debounceRef = useRef(null);
 
   const showToast = (message, type = 'success') => setToast({ message, type });
@@ -71,56 +59,17 @@ export default function ProcessReturns() {
     return charges * (policy.fine_amount ?? 5);
   }
 
-  function playBeep() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 1480;
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.18);
-    } catch (_) {}
-  }
-
-  function triggerScanFeedback(code) {
-    playBeep();
-    setDetectedCode(code);
-    setScanFlash(true);
-    setTimeout(() => setScanFlash(false), 600);
-    setTimeout(() => setDetectedCode(''), 2500);
-  }
-
   useEffect(() => {
     fetchFinePolicy();
     fetchRecentReturns();
     if (inputRef.current) inputRef.current.focus();
     const onVisible = () => { if (!document.hidden) fetchRecentReturns(); };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, []);
-
-  // Stop camera and clear debounce on unmount
-  useEffect(() => {
     return () => {
-      stopCamera();
+      document.removeEventListener('visibilitychange', onVisible);
       clearTimeout(debounceRef.current);
     };
   }, []);
-
-  // Start scanning only AFTER the video element is in the DOM (cameraOpen → render → effect runs)
-  useEffect(() => {
-    if (cameraOpen && selectedCamera) {
-      // Small delay ensures React has flushed the DOM and the <video> ref is attached
-      const t = setTimeout(() => {
-        if (videoRef.current) startScanning(selectedCamera);
-      }, 100);
-      return () => clearTimeout(t);
-    }
-  }, [cameraOpen, selectedCamera]);
 
   async function fetchRecentReturns() {
     let { data, error } = await localDbAdmin
@@ -146,95 +95,6 @@ export default function ProcessReturns() {
     }
     if (data) setRecentReturns(data);
   }
-
-  async function openCamera() {
-    setCameraError('');
-    try {
-      const deviceList = await BrowserMultiFormatReader.listVideoInputDevices();
-      if (!deviceList || deviceList.length === 0) {
-        setCameraError('No camera found on this device.');
-        return;
-      }
-      setCameras(deviceList);
-      // Prefer back camera on mobile
-      const back = deviceList.find(d => /back|rear|environment/i.test(d.label));
-      const chosen = back?.deviceId || deviceList[deviceList.length - 1].deviceId;
-      setSelectedCamera(chosen);
-      // setCameraOpen AFTER selectedCamera is set so the useEffect picks up both together
-      setCameraOpen(true);
-    } catch (err) {
-      setCameraError('Camera access denied. Please allow camera permission and try again.');
-    }
-  }
-
-  function stopCamera() {
-    if (readerRef.current) {
-      try { readerRef.current.reset(); } catch (_) {}
-      readerRef.current = null;
-    }
-    setScanning(false);
-  }
-
-  function closeCamera() {
-    stopCamera();
-    setCameraOpen(false);
-    setCameraError('');
-    if (inputRef.current) inputRef.current.focus();
-  }
-
-  async function startScanning(deviceId) {
-    setScanning(true);
-    const codeReader = new BrowserMultiFormatReader();
-    readerRef.current = codeReader;
-    lastScannedRef.current = '';
-
-    try {
-      await codeReader.decodeFromVideoDevice(
-        deviceId || selectedCamera,
-        videoRef.current,
-        (result, err) => {
-          if (result) {
-            const text = result.getText();
-            // Debounce: ignore same code within 2 seconds
-            if (text === lastScannedRef.current) return;
-            if (processingRef.current) return;
-            lastScannedRef.current = text;
-            setTimeout(() => { lastScannedRef.current = ''; }, 2000);
-            handleBarcodeDetected(text);
-          }
-        }
-      );
-    } catch (err) {
-      // NotFoundException fires normally when no barcode is in frame — ignore it
-      if (err?.name !== 'NotFoundException') {
-        setCameraError('Camera error: ' + (err.message || 'Could not start scanner.'));
-        setCameraOpen(false);
-        setScanning(false);
-      }
-    }
-  }
-
-  async function switchCamera(deviceId) {
-    stopCamera();
-    setSelectedCamera(deviceId);
-    // useEffect will re-trigger startScanning when selectedCamera changes
-  }
-
-  const handleBarcodeDetected = useCallback(async (scanned) => {
-    if (!scanned) return;
-    processingRef.current = true;
-    setProcessing(true);
-    setBarcode(scanned);
-    triggerScanFeedback(scanned);
-
-    try {
-      await processReturn(scanned);
-    } finally {
-      processingRef.current = false;
-      setProcessing(false);
-      setBarcode('');
-    }
-  }, []);
 
   const handleScanSubmit = async (e) => {
     e.preventDefault();
@@ -284,7 +144,6 @@ export default function ProcessReturns() {
         const overdueUnits = computeOverdueUnits(transaction.due_date, finePolicy);
         const fineLabel = finePolicy.fine_increment_type === 'per_hour' ? 'hour' : 'day';
 
-        // Insert a fines row first so we can link fine_id on the transaction
         let fineId = null;
         if (fineAmount > 0) {
           const { data: fineRow, error: fineErr } = await localDbAdmin
@@ -304,7 +163,7 @@ export default function ProcessReturns() {
 
         const transUpdate = { status: 'returned', return_date: new Date().toISOString() };
         if (fineAmount > 0) {
-          transUpdate.fine_amount = fineAmount; // keep snapshot for legacy reads
+          transUpdate.fine_amount = fineAmount;
           transUpdate.fine_id = fineId;
         }
 
@@ -339,7 +198,6 @@ export default function ProcessReturns() {
           'success'
         );
 
-        // Send notification if user exists
         if (transaction.user_id) {
           const notifRow = {
             user_id: transaction.user_id,
@@ -388,7 +246,6 @@ export default function ProcessReturns() {
       const overdueUnits = computeOverdueUnits(transaction.due_date, finePolicy);
       const fineLabel = finePolicy.fine_increment_type === 'per_hour' ? 'hour' : 'day';
 
-      // Insert a fines row first so we can link fine_id on the transaction
       let fineId = null;
       if (fineAmount > 0) {
         const { data: fineRow, error: fineErr } = await localDbAdmin
@@ -408,7 +265,7 @@ export default function ProcessReturns() {
 
       const transUpdate = { status: 'returned', return_date: new Date().toISOString() };
       if (fineAmount > 0) {
-        transUpdate.fine_amount = fineAmount; // keep snapshot for legacy reads
+        transUpdate.fine_amount = fineAmount;
         transUpdate.fine_id = fineId;
       }
 
@@ -431,7 +288,6 @@ export default function ProcessReturns() {
         'success'
       );
 
-      // Send notification if user exists
       if (transaction.user_id) {
         const notifRow = {
           user_id: transaction.user_id,
@@ -475,154 +331,51 @@ export default function ProcessReturns() {
         boxShadow: '0 4px 15px rgba(0,0,0,0.05)', borderTop: '6px solid var(--green)',
         marginBottom: '2rem', textAlign: 'center', width: '100%', boxSizing: 'border-box'
       }}>
-        <h2 style={{ color: '#334155', margin: '0 0 6px 0' }}>
-          {cameraOpen ? 'Camera Scanner' : 'Ready to Scan'}
-        </h2>
+        <h2 style={{ color: '#334155', margin: '0 0 6px 0' }}>Ready to Scan</h2>
         <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0 0 20px 0' }}>
-          {cameraOpen
-            ? 'Point the camera at the barcode on the book spine.'
-            : 'Use a USB scanner or your device camera to read the barcode label.'}
+          Use a USB barcode scanner or type the barcode label to check in a book.
         </p>
 
-        {/* Camera viewfinder */}
-        {cameraOpen && (
-          <div style={{ marginBottom: '18px' }}>
-            <div style={{
-              position: 'relative', display: 'block',
-              borderRadius: '12px', overflow: 'hidden',
-              boxShadow: scanFlash
-                ? '0 0 0 4px #22c55e, 0 0 28px 8px rgba(34,197,94,0.45)'
-                : '0 0 0 3px #94a3b8',
-              transition: 'box-shadow 0.1s ease',
-              background: '#000', width: '360px', maxWidth: '100%', margin: '0 auto'
-            }}>
-              <video
-                ref={videoRef}
-                style={{ display: 'block', width: '100%', borderRadius: '10px' }}
-                muted
-                playsInline
-              />
-              {/* Green flash overlay on successful scan */}
-              {scanFlash && (
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  background: 'rgba(34,197,94,0.22)',
-                  borderRadius: '10px', pointerEvents: 'none'
-                }} />
-              )}
-            </div>
-
-            {/* Status line below viewfinder */}
-            <div style={{ minHeight: '36px', marginTop: '10px', display: 'flex', justifyContent: 'center' }}>
-              {detectedCode ? (
-                <div style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '8px',
-                  background: '#f0fdf4', border: '1.5px solid #86efac',
-                  borderRadius: '8px', padding: '6px 16px'
-                }}>
-                  <span style={{ fontSize: '1.1rem' }}>✅</span>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#15803d', fontSize: '0.95rem' }}>
-                    {detectedCode}
-                  </span>
-                  {processing && (
-                    <span style={{ color: '#64748b', fontSize: '0.82rem', marginLeft: '4px' }}>processing…</span>
-                  )}
-                </div>
-              ) : scanning ? (
-                <p style={{ color: '#64748b', fontSize: '0.85rem', margin: 0, alignSelf: 'center' }}>
-                  Scanning — hold barcode steady inside the frame
-                </p>
-              ) : null}
-            </div>
-
-            {/* Camera selector (only show if multiple cameras) */}
-            {cameras.length > 1 && (
-              <div style={{ marginTop: '10px' }}>
-                <select
-                  value={selectedCamera}
-                  onChange={(e) => switchCamera(e.target.value)}
-                  style={{
-                    padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-                    fontSize: '0.85rem', color: '#475569', cursor: 'pointer'
-                  }}
-                >
-                  {cameras.map(cam => (
-                    <option key={cam.deviceId} value={cam.deviceId}>
-                      {cam.label || `Camera ${cam.deviceId.slice(0, 8)}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-        )}
-
-        {cameraError && (
-          <p style={{ color: 'var(--maroon)', fontSize: '0.85rem', marginBottom: '12px' }}>
-            {cameraError}
-          </p>
-        )}
-
-        {/* Text input row */}
-        {!cameraOpen && (
-          <form onSubmit={handleScanSubmit} style={{ display: 'flex', gap: '10px', width: '100%', margin: '0 0 14px' }}>
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Scan or type barcode (e.g. LIB-2026-000001)"
-              value={barcode}
-              onChange={(e) => {
-                const val = e.target.value;
-                setBarcode(val);
-                clearTimeout(debounceRef.current);
-                if (val.trim()) {
-                  debounceRef.current = setTimeout(() => {
-                    if (!processingRef.current && val.trim()) {
-                      e.target.form.requestSubmit();
-                    }
-                  }, 600);
-                }
-              }}
-              disabled={processing}
-              style={{
-                flex: 1, padding: '18px 24px', fontSize: '1.4rem', borderRadius: '10px',
-                border: `2px solid ${processing ? '#a3e635' : '#cbd5e1'}`,
-                outline: 'none', fontFamily: 'monospace',
-                transition: 'border-color 0.2s'
-              }}
-              autoFocus
-            />
-            <button
-              type="submit"
-              disabled={processing || !barcode}
-              style={{
-                padding: '0 28px', background: processing ? '#64748b' : 'var(--maroon)', color: 'white',
-                border: 'none', borderRadius: '10px', fontSize: '1.1rem',
-                fontWeight: 'bold', cursor: processing || !barcode ? 'not-allowed' : 'pointer',
-                whiteSpace: 'nowrap', transition: 'background 0.2s'
-              }}
-            >
-              {processing ? 'Processing…' : 'Return'}
-            </button>
-          </form>
-        )}
-
-        {/* Camera toggle button */}
-        <button
-          onClick={cameraOpen ? closeCamera : openCamera}
-          disabled={processing}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: '8px',
-            padding: '9px 20px', borderRadius: '8px', cursor: processing ? 'not-allowed' : 'pointer',
-            border: cameraOpen ? '2px solid var(--maroon)' : '2px solid var(--green)',
-            background: cameraOpen ? '#fff1f2' : '#f0fdf4',
-            color: cameraOpen ? 'var(--maroon)' : '#166534',
-            fontWeight: 600, fontSize: '0.9rem', transition: 'all 0.15s'
-          }}
-        >
-          <span style={{ fontSize: '1.1rem' }}>{cameraOpen ? '✕' : '📷'}</span>
-          {cameraOpen ? 'Close Camera' : 'Use Camera Scanner'}
-        </button>
+        <form onSubmit={handleScanSubmit} style={{ display: 'flex', gap: '10px', width: '100%', margin: '0 0 14px' }}>
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Scan or type barcode (e.g. LIB-2026-000001)"
+            value={barcode}
+            onChange={(e) => {
+              const val = e.target.value;
+              setBarcode(val);
+              clearTimeout(debounceRef.current);
+              if (val.trim()) {
+                debounceRef.current = setTimeout(() => {
+                  if (val.trim()) {
+                    e.target.form.requestSubmit();
+                  }
+                }, 600);
+              }
+            }}
+            disabled={processing}
+            style={{
+              flex: 1, padding: '18px 24px', fontSize: '1.4rem', borderRadius: '10px',
+              border: `2px solid ${processing ? '#a3e635' : '#cbd5e1'}`,
+              outline: 'none', fontFamily: 'monospace',
+              transition: 'border-color 0.2s'
+            }}
+            autoFocus
+          />
+          <button
+            type="submit"
+            disabled={processing || !barcode}
+            style={{
+              padding: '0 28px', background: processing ? '#64748b' : 'var(--maroon)', color: 'white',
+              border: 'none', borderRadius: '10px', fontSize: '1.1rem',
+              fontWeight: 'bold', cursor: processing || !barcode ? 'not-allowed' : 'pointer',
+              whiteSpace: 'nowrap', transition: 'background 0.2s'
+            }}
+          >
+            {processing ? 'Processing…' : 'Return'}
+          </button>
+        </form>
       </div>
 
       {/* Recent returns table */}
