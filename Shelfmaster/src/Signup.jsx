@@ -65,6 +65,18 @@ export default function Signup() {
     const combined = `${cleanGrade} - ${cleanSection}`;
 
     try {
+      // Check for duplicate LRN before creating any account
+      const { data: existingLrn } = await localDb
+        .from('users')
+        .select('id')
+        .eq('lrn', cleanLrn)
+        .maybeSingle();
+      if (existingLrn) {
+        showToast('This LRN is already registered. Please check your LRN or contact your librarian.', 'error');
+        setLoading(false);
+        return;
+      }
+
       const signupResult = await localDb.auth.signUp({ email: cleanEmail, password: formData.password });
       if (signupResult.error) throw signupResult.error;
       const authUser = signupResult.data?.user;
@@ -76,7 +88,12 @@ export default function Signup() {
         grade_section: combined, course_year: combined,
         role: formData.role, status: 'active'
       }]);
-      if (profileError) throw profileError;
+      if (profileError) {
+        if (profileError.code === '23505') {
+          throw new Error('This LRN is already registered. Please check your LRN or contact your librarian.');
+        }
+        throw profileError;
+      }
 
       if (signupResult.verified) {
         showToast('Account created! You can sign in now.', 'success');

@@ -785,6 +785,7 @@ async function checkSupabaseReachable() {
     if (error) throw error;
     console.log(`[db] Supabase reachable at ${SUPABASE_URL}`);
     await runColumnMigrations();
+    await runIndexRecommendations();
   } catch (err) {
     console.error('\n========================================');
     console.error(' ❌ Cannot reach Supabase');
@@ -792,6 +793,36 @@ async function checkSupabaseReachable() {
     console.error(` URL:   ${SUPABASE_URL}`);
     console.error(` Error: ${err.message}`);
     console.error('========================================\n');
+  }
+}
+
+async function runIndexRecommendations() {
+  try {
+    // Check for duplicate LRNs in the users table
+    const { data: users } = await supabase
+      .from('users')
+      .select('lrn')
+      .not('lrn', 'is', null);
+
+    if (users) {
+      const counts = {};
+      for (const u of users) { if (u.lrn) counts[u.lrn] = (counts[u.lrn] || 0) + 1; }
+      const dupes = Object.entries(counts).filter(([, n]) => n > 1).map(([lrn]) => lrn);
+
+      if (dupes.length > 0) {
+        console.warn('\n========================================');
+        console.warn(' ⚠️  Duplicate LRNs detected in the users table:');
+        console.warn('   ' + dupes.join(', '));
+        console.warn(' Resolve these duplicates, then run in Supabase SQL Editor:');
+        console.warn('   CREATE UNIQUE INDEX IF NOT EXISTS users_lrn_unique ON users (lrn) WHERE lrn IS NOT NULL;');
+        console.warn('========================================\n');
+      } else {
+        console.log('[db] LRN uniqueness: OK (no duplicates). Recommended SQL to enforce at DB level:');
+        console.log('     CREATE UNIQUE INDEX IF NOT EXISTS users_lrn_unique ON users (lrn) WHERE lrn IS NOT NULL;');
+      }
+    }
+  } catch (err) {
+    console.warn('[db] Could not check LRN uniqueness:', err.message);
   }
 }
 
