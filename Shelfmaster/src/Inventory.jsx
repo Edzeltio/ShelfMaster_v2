@@ -636,13 +636,25 @@ export default function Inventory() {
 
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
+      // Helper: format a date string (YYYY-MM-DD) without timezone shift
+      const formatDate = (val) => {
+        if (!val) return '—';
+        // Use string parsing to avoid UTC-to-local offset bugs
+        const parts = String(val).split('T')[0].split('-');
+        if (parts.length === 3) {
+          const [y, m, d] = parts;
+          return `${parseInt(m)}/${parseInt(d)}/${y}`;
+        }
+        return val;
+      };
+
       // Title header
       doc.setFillColor(123, 31, 31);
       doc.rect(0, 0, 297, 22, 'F');
       doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 255, 255);
       doc.text('ShelfMaster — Inventory Report', 14, 14);
       doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-      doc.text(`Generated: ${new Date().toLocaleString()}  |  Total books: ${allBooks.length}`, 200, 14);
+      doc.text(`Generated: ${new Date().toLocaleString()}  |  Total titles: ${allBooks.length}`, 185, 14);
 
       const totalCopies = allBooks.reduce((s, b) => s + (Number(b.quantity) || 0), 0);
       doc.setTextColor(255, 220, 150);
@@ -650,57 +662,100 @@ export default function Inventory() {
 
       // Summary stats row
       const physical = allBooks.filter(b => b.book_type !== 'eBook').length;
-      const ebooks = allBooks.filter(b => b.book_type === 'eBook').length;
+      const ebooksCount = allBooks.filter(b => b.book_type === 'eBook').length;
       const outOfStock = allBooks.filter(b => (b.quantity ?? 0) === 0).length;
 
       doc.setFillColor(245, 250, 232); doc.rect(0, 22, 297, 12, 'F');
       doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(60, 60, 60);
-      doc.text(`Physical Books: ${physical}   |   eBooks: ${ebooks}   |   Out of Stock: ${outOfStock}`, 14, 30);
+      doc.text(`Physical Books: ${physical}   |   eBooks: ${ebooksCount}   |   Out of Stock: ${outOfStock}`, 14, 30);
 
-      // Table
+      // --- PAGE 1: Core bibliographic info ---
       const { default: autoTable } = await import('jspdf-autotable');
       autoTable(doc, {
         startY: 36,
-        head: [['#', 'Accession No.', 'Title', 'Author(s)', 'Category', 'Type', 'Edition', 'Pages', 'Available Copies', 'Date Acquired']],
+        head: [['#', 'Accession No.', 'Title', 'Author(s)', 'Classification / Subject', 'Type', 'Copyright', 'Qty / Copies']],
         body: allBooks.map((b, i) => [
           i + 1,
           b.accession_num || '—',
           b.title || '—',
           b.authors || '—',
-          b.category || b.subject_class || '—',
+          b.subject_class || b.category || '—',
           b.book_type || 'Physical',
-          b.edition || '—',
-          b.pages || '—',
+          b.copyright || '—',
           b.quantity ?? 0,
-          b.date_acquired ? new Date(b.date_acquired).toLocaleDateString() : '—',
         ]),
         theme: 'grid',
-        headStyles: { fillColor: [123, 31, 31], textColor: 255, fontStyle: 'bold', fontSize: 8 },
-        bodyStyles: { fontSize: 7.5, textColor: [30, 30, 30] },
+        headStyles: { fillColor: [123, 31, 31], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+        bodyStyles: { fontSize: 7, textColor: [30, 30, 30] },
         alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: 8, right: 8 },
         columnStyles: {
-          0: { cellWidth: 8, halign: 'center' },
+          0: { cellWidth: 8,  halign: 'center' },
           1: { cellWidth: 28 },
-          2: { cellWidth: 55 },
-          3: { cellWidth: 42 },
-          4: { cellWidth: 28 },
-          5: { cellWidth: 20 },
-          6: { cellWidth: 18 },
-          7: { cellWidth: 14, halign: 'center' },
-          8: { cellWidth: 22, halign: 'center' },
-          9: { cellWidth: 26 },
+          2: { cellWidth: 68 },
+          3: { cellWidth: 54 },
+          4: { cellWidth: 42 },
+          5: { cellWidth: 24 },
+          6: { cellWidth: 22, halign: 'center' },
+          7: { cellWidth: 24, halign: 'center' },
         },
         didParseCell: (data) => {
-          // Highlight out-of-stock rows
-          if (data.section === 'body' && data.column.index === 8 && data.cell.raw === 0) {
+          if (data.section === 'body' && data.column.index === 7 && data.cell.raw === 0) {
             data.cell.styles.textColor = [220, 38, 38];
             data.cell.styles.fontStyle = 'bold';
           }
         },
       });
 
+      // --- PAGE 2: Acquisition / financial details ---
+      doc.addPage();
+
+      // Repeat header on page 2
+      doc.setFillColor(123, 31, 31);
+      doc.rect(0, 0, 297, 22, 'F');
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 255, 255);
+      doc.text('ShelfMaster — Inventory Report (Acquisition Details)', 14, 14);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      doc.text(`Generated: ${new Date().toLocaleString()}`, 210, 14);
+
+      doc.setFillColor(245, 250, 232); doc.rect(0, 22, 297, 12, 'F');
+      doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(60, 60, 60);
+      doc.text('Page 2 of 2 — Publisher, ISBN, Source of Fund, Cost Price, Pages & Remarks', 14, 30);
+
+      autoTable(doc, {
+        startY: 36,
+        head: [['#', 'Accession No.', 'Title', 'Publisher', 'ISBN', 'Source of Fund', 'Cost Price', 'Pages', 'Remarks']],
+        body: allBooks.map((b, i) => [
+          i + 1,
+          b.accession_num || '—',
+          b.title || '—',
+          b.publisher || '—',
+          b.isbn || '—',
+          b.source || '—',
+          b.cost_price != null ? `₱${Number(b.cost_price).toFixed(2)}` : '—',
+          b.pages || '—',
+          b.remark || '—',
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [123, 31, 31], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+        bodyStyles: { fontSize: 7, textColor: [30, 30, 30] },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: 8, right: 8 },
+        columnStyles: {
+          0: { cellWidth: 8,  halign: 'center' },
+          1: { cellWidth: 28 },
+          2: { cellWidth: 58 },
+          3: { cellWidth: 40 },
+          4: { cellWidth: 30 },
+          5: { cellWidth: 34 },
+          6: { cellWidth: 24, halign: 'right' },
+          7: { cellWidth: 16, halign: 'center' },
+          8: { cellWidth: 43 },
+        },
+      });
+
       doc.save(`ShelfMaster-Inventory-${new Date().toISOString().split('T')[0]}.pdf`);
-      showToast('Inventory report exported successfully.', 'success');
+      showToast('Inventory report exported successfully (2 pages).', 'success');
     } catch (err) {
       console.error('Inventory report error:', err);
       showToast('Failed to generate inventory report: ' + err.message, 'error');

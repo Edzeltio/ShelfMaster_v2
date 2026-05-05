@@ -41,13 +41,13 @@ export default function ProcessReturns() {
 
   async function fetchFinePolicy() {
     const { data } = await localDbAdmin
-      .from('site_content')
-      .select('fine_per_day, fine_amount, fine_increment_value, fine_increment_type')
+      .from('fine_policy')
+      .select('fine_amount, fine_increment_value, fine_increment_type')
       .limit(1)
       .maybeSingle();
     if (data) {
       setFinePolicy({
-        fine_amount: data.fine_amount ?? data.fine_per_day ?? 5,
+        fine_amount: data.fine_amount ?? 5,
         fine_increment_value: Math.max(1, Number(data.fine_increment_value ?? 1)),
         fine_increment_type: data.fine_increment_type || 'per_day',
       });
@@ -284,8 +284,29 @@ export default function ProcessReturns() {
         const overdueUnits = computeOverdueUnits(transaction.due_date, finePolicy);
         const fineLabel = finePolicy.fine_increment_type === 'per_hour' ? 'hour' : 'day';
 
+        // Insert a fines row first so we can link fine_id on the transaction
+        let fineId = null;
+        if (fineAmount > 0) {
+          const { data: fineRow, error: fineErr } = await localDbAdmin
+            .from('fines')
+            .insert([{
+              transaction_id: transaction.id,
+              user_id: transaction.user_id,
+              amount: fineAmount,
+              overdue_days: overdueUnits,
+              status: 'unpaid',
+            }])
+            .select('id')
+            .single();
+          if (fineErr) throw fineErr;
+          fineId = fineRow.id;
+        }
+
         const transUpdate = { status: 'returned', return_date: new Date().toISOString() };
-        if (fineAmount > 0) transUpdate.fine_amount = fineAmount;
+        if (fineAmount > 0) {
+          transUpdate.fine_amount = fineAmount; // keep snapshot for legacy reads
+          transUpdate.fine_id = fineId;
+        }
 
         const { error: updateTransError } = await localDbAdmin
           .from('transactions')
@@ -320,7 +341,7 @@ export default function ProcessReturns() {
 
         // Send notification if user exists
         if (transaction.user_id) {
-          await localDbAdmin.from('notifications').insert([{
+          const notifRow = {
             user_id: transaction.user_id,
             type: fineAmount > 0 ? 'return_with_fine' : 'returned',
             title: fineAmount > 0 ? 'Book returned — fine due' : 'Book returned',
@@ -329,7 +350,9 @@ export default function ProcessReturns() {
               : `Your return of "${transaction.books?.title}" was recorded. Thank you!`,
             email_sent: false,
             read: false,
-          }]);
+          };
+          if (fineId) notifRow.fine_id = fineId;
+          await localDbAdmin.from('notifications').insert([notifRow]);
         }
 
         fetchRecentReturns();
@@ -365,8 +388,29 @@ export default function ProcessReturns() {
       const overdueUnits = computeOverdueUnits(transaction.due_date, finePolicy);
       const fineLabel = finePolicy.fine_increment_type === 'per_hour' ? 'hour' : 'day';
 
+      // Insert a fines row first so we can link fine_id on the transaction
+      let fineId = null;
+      if (fineAmount > 0) {
+        const { data: fineRow, error: fineErr } = await localDbAdmin
+          .from('fines')
+          .insert([{
+            transaction_id: transaction.id,
+            user_id: transaction.user_id,
+            amount: fineAmount,
+            overdue_days: overdueUnits,
+            status: 'unpaid',
+          }])
+          .select('id')
+          .single();
+        if (fineErr) throw fineErr;
+        fineId = fineRow.id;
+      }
+
       const transUpdate = { status: 'returned', return_date: new Date().toISOString() };
-      if (fineAmount > 0) transUpdate.fine_amount = fineAmount;
+      if (fineAmount > 0) {
+        transUpdate.fine_amount = fineAmount; // keep snapshot for legacy reads
+        transUpdate.fine_id = fineId;
+      }
 
       const { error: updateTransError } = await localDbAdmin
         .from('transactions')
@@ -389,7 +433,7 @@ export default function ProcessReturns() {
 
       // Send notification if user exists
       if (transaction.user_id) {
-        await localDbAdmin.from('notifications').insert([{
+        const notifRow = {
           user_id: transaction.user_id,
           type: fineAmount > 0 ? 'return_with_fine' : 'returned',
           title: fineAmount > 0 ? 'Book returned — fine due' : 'Book returned',
@@ -398,7 +442,9 @@ export default function ProcessReturns() {
             : `Your return of "${book.title}" was recorded. Thank you!`,
           email_sent: false,
           read: false,
-        }]);
+        };
+        if (fineId) notifRow.fine_id = fineId;
+        await localDbAdmin.from('notifications').insert([notifRow]);
       }
 
       fetchRecentReturns();

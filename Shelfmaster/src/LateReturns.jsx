@@ -14,13 +14,13 @@ export default function LateReturns() {
 
   async function fetchFinePolicy() {
     const { data } = await localDbAdmin
-      .from('site_content')
-      .select('fine_per_day, fine_amount, fine_increment_value, fine_increment_type')
+      .from('fine_policy')
+      .select('fine_amount, fine_increment_value, fine_increment_type')
       .limit(1)
       .maybeSingle();
     if (data) {
       setFinePolicy({
-        fine_amount: data.fine_amount ?? data.fine_per_day ?? 5,
+        fine_amount: data.fine_amount ?? 5,
         fine_increment_value: Math.max(1, Number(data.fine_increment_value ?? 1)),
         fine_increment_type: data.fine_increment_type || 'per_day',
       });

@@ -18,6 +18,8 @@ export default function WalkIn() {
     adviser: '',
     contact: '',
   });
+  const [studentLinked, setStudentLinked] = useState(null); // linked user account
+  const [lrnLookupState, setLrnLookupState] = useState('idle'); // 'idle' | 'searching' | 'found' | 'notfound'
 
   // Teacher flow — fillable form
   const [teacherForm, setTeacherForm] = useState({
@@ -27,6 +29,8 @@ export default function WalkIn() {
     gradeSection: '',
     contact: '',
   });
+  const [teacherLinked, setTeacherLinked] = useState(null);
+  const [empLookupState, setEmpLookupState] = useState('idle'); // 'idle' | 'searching' | 'found' | 'notfound'
 
   // Books (both flows) — each entry: { ...book, days }
   const [bookQuery, setBookQuery] = useState('');
@@ -93,6 +97,87 @@ export default function WalkIn() {
     setBookQuery('');
     setStudentForm({ fullName: '', gradeSection: '', lrn: '', adviser: '', contact: '' });
     setTeacherForm({ fullName: '', employeeId: '', position: '', gradeSection: '', contact: '' });
+    setStudentLinked(null);
+    setTeacherLinked(null);
+    setLrnLookupState('idle');
+    setEmpLookupState('idle');
+  };
+
+  // Look up a student account by LRN and auto-fill the form
+  const lookupByLrn = async (lrn) => {
+    const clean = lrn.replace(/\D/g, '').slice(0, 12);
+    setStudentForm(f => ({ ...f, lrn: clean }));
+    if (clean.length < 12) {
+      setStudentLinked(null);
+      setLrnLookupState('idle');
+      return;
+    }
+    setLrnLookupState('searching');
+    const { data } = await localDbAdmin
+      .from('users')
+      .select('id, name, lrn, grade_section, student_id')
+      .eq('lrn', clean)
+      .eq('role', 'student')
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      setStudentLinked(data);
+      setLrnLookupState('found');
+      setStudentForm(f => ({
+        ...f,
+        lrn: clean,
+        fullName: data.name || f.fullName,
+        gradeSection: data.grade_section || f.gradeSection,
+      }));
+    } else {
+      setStudentLinked(null);
+      setLrnLookupState('notfound');
+    }
+  };
+
+  const unlinkStudent = () => {
+    setStudentLinked(null);
+    setLrnLookupState('idle');
+    setStudentForm({ fullName: '', gradeSection: '', lrn: studentForm.lrn, adviser: '', contact: '' });
+  };
+
+  // Look up a teacher account by Employee ID from past walk-in transactions
+  const lookupByEmployeeId = async (empId) => {
+    setTeacherForm(f => ({ ...f, employeeId: empId }));
+    if (!empId.trim()) {
+      setTeacherLinked(null);
+      setEmpLookupState('idle');
+      return;
+    }
+    setEmpLookupState('searching');
+    // Teachers don't have user accounts — look up last walk-in transaction with this employee ID
+    const { data } = await localDbAdmin
+      .from('transactions')
+      .select('walk_in_name, walk_in_employee_id, walk_in_position, walk_in_grade_section, walk_in_contact')
+      .eq('walk_in_employee_id', empId.trim())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      setTeacherLinked(data);
+      setEmpLookupState('found');
+      setTeacherForm(f => ({
+        ...f,
+        fullName: data.walk_in_name || f.fullName,
+        position: data.walk_in_position || f.position,
+        gradeSection: data.walk_in_grade_section || f.gradeSection,
+        contact: data.walk_in_contact || f.contact,
+      }));
+    } else {
+      setTeacherLinked(null);
+      setEmpLookupState('notfound');
+    }
+  };
+
+  const unlinkTeacher = () => {
+    setTeacherLinked(null);
+    setEmpLookupState('idle');
+    setTeacherForm({ fullName: '', employeeId: teacherForm.employeeId, position: '', gradeSection: '', contact: '' });
   };
 
   const addBook = (b) => {
@@ -183,7 +268,7 @@ export default function WalkIn() {
             : new Date(Date.now() + book.days * 86400000).toISOString();
 
           const payload = {
-            user_id: null,
+            user_id: studentLinked?.id || null,
             book_id: book.id,
             status,
             borrow_date: borrowDate,
@@ -310,12 +395,38 @@ export default function WalkIn() {
 
             {isTeacher ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+                {/* Employee ID first — triggers lookup */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', gridColumn: '1 / -1' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569' }}>Employee No * <span style={{ fontWeight: 400, color: '#94a3b8' }}>(enter to auto-fill from previous records)</span></label>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      value={teacherForm.employeeId}
+                      onChange={(e) => lookupByEmployeeId(e.target.value)}
+                      placeholder="EMP-2026-001"
+                      style={{ ...inputStyle, paddingRight: '110px' }}
+                    />
+                    <span style={{
+                      position: 'absolute', right: '10px',
+                      fontSize: '0.72rem', fontWeight: 600,
+                      color: empLookupState === 'found' ? '#059669' : empLookupState === 'notfound' ? '#94a3b8' : empLookupState === 'searching' ? '#6366f1' : 'transparent',
+                    }}>
+                      {empLookupState === 'found' ? '✓ Record found' : empLookupState === 'notfound' ? 'No previous record' : empLookupState === 'searching' ? 'Searching...' : ''}
+                    </span>
+                  </div>
+                  {empLookupState === 'found' && teacherLinked && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 12px', marginTop: '4px' }}>
+                      <span style={{ fontSize: '1.1rem' }}>👨‍🏫</span>
+                      <div style={{ flex: 1, fontSize: '0.82rem', color: '#166534' }}>
+                        <strong>{teacherLinked.walk_in_name}</strong> — fields auto-filled from last visit
+                      </div>
+                      <button onClick={unlinkTeacher} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: '0.78rem', fontWeight: 600 }}>✕ Clear</button>
+                    </div>
+                  )}
+                </div>
                 <Field label="Name *" value={teacherForm.fullName}
                   onChange={(v) => setTeacherForm(f => ({ ...f, fullName: v }))}
                   placeholder="Ms. Maria Reyes" />
-                <Field label="Employee No *" value={teacherForm.employeeId}
-                  onChange={(v) => setTeacherForm(f => ({ ...f, employeeId: v }))}
-                  placeholder="EMP-2026-001" />
                 <Field label="Position / Designation *" value={teacherForm.position}
                   onChange={(v) => setTeacherForm(f => ({ ...f, position: v }))}
                   placeholder="e.g. Teacher I, Master Teacher II" />
@@ -328,17 +439,46 @@ export default function WalkIn() {
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+                {/* LRN first — triggers account lookup */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', gridColumn: '1 / -1' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569' }}>LRN * (12 digits) <span style={{ fontWeight: 400, color: '#94a3b8' }}>(enter LRN to auto-fill from account)</span></label>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      value={studentForm.lrn}
+                      onChange={(e) => lookupByLrn(e.target.value)}
+                      placeholder="123456789012"
+                      inputMode="numeric"
+                      maxLength={12}
+                      style={{ ...inputStyle, paddingRight: '130px', fontFamily: 'monospace', letterSpacing: '0.05em' }}
+                    />
+                    <span style={{
+                      position: 'absolute', right: '10px',
+                      fontSize: '0.72rem', fontWeight: 600,
+                      color: lrnLookupState === 'found' ? '#059669' : lrnLookupState === 'notfound' ? '#94a3b8' : lrnLookupState === 'searching' ? '#6366f1' : 'transparent',
+                    }}>
+                      {lrnLookupState === 'found' ? '✓ Account found' : lrnLookupState === 'notfound' ? 'No account found' : lrnLookupState === 'searching' ? 'Searching...' : ''}
+                    </span>
+                  </div>
+                  {lrnLookupState === 'found' && studentLinked && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 12px', marginTop: '4px' }}>
+                      <span style={{ fontSize: '1.1rem' }}>🎓</span>
+                      <div style={{ flex: 1, fontSize: '0.82rem', color: '#166534' }}>
+                        <strong>{studentLinked.name}</strong> · {studentLinked.grade_section} — fields auto-filled from account
+                      </div>
+                      <button onClick={unlinkStudent} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: '0.78rem', fontWeight: 600 }}>✕ Clear</button>
+                    </div>
+                  )}
+                  {lrnLookupState === 'notfound' && (
+                    <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>No registered account with this LRN — fill in the fields manually.</p>
+                  )}
+                </div>
                 <Field label="Name *" value={studentForm.fullName}
                   onChange={(v) => setStudentForm(f => ({ ...f, fullName: v }))}
                   placeholder="Juan Dela Cruz" />
                 <Field label="Track / Strand / Grade *" value={studentForm.gradeSection}
                   onChange={(v) => setStudentForm(f => ({ ...f, gradeSection: v }))}
                   placeholder="e.g. Grade 8 - Section B, Grade 12 - HUMSS" />
-                <Field label="LRN * (12 digits)" value={studentForm.lrn}
-                  onChange={(v) => setStudentForm(f => ({ ...f, lrn: v.replace(/\D/g, '').slice(0, 12) }))}
-                  placeholder="123456789012"
-                  inputMode="numeric"
-                  maxLength={12} />
                 <Field label="Adviser *" value={studentForm.adviser}
                   onChange={(v) => setStudentForm(f => ({ ...f, adviser: v }))}
                   placeholder="e.g. Ms. Reyes" />
