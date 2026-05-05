@@ -26,6 +26,7 @@ Preferred communication style: Simple, everyday language.
 - **Typography:** Google Fonts (Cormorant Garamond + DM Sans) for a library aesthetic
 - **State/session:** JWT stored in `sessionStorage` via `localDbClient.js`
 - **Responsive design:** Custom `useResponsive` hook tracking mobile/tablet/desktop breakpoints
+- **Deployment:** Web-only (Electron removed)
 
 ### Backend (Express.js)
 - **Server:** `server.js` — a single Express.js server that:
@@ -53,11 +54,6 @@ Preferred communication style: Simple, everyday language.
 - **`localDbClient.js`:** A browser-side client that mimics the Supabase JS API surface but actually routes all calls through the Express REST API (not directly to Supabase)
 - **`localDbAdmin.js`:** Re-export of `localDbClient` used by librarian/admin screens
 - **`connectionManager.js`:** Stores server IP/port in `localStorage` so LAN devices can point to a specific server instance — supports multi-device library setups
-
-### Desktop App (Electron)
-- **Entry:** `electron/main.cjs` spawns the Express server and opens a browser window
-- **Preload:** `electron/preload.cjs` exposes `window.shelfmaster`
-- **Build targets:** NSIS (Windows), DMG (macOS), AppImage (Linux) via electron-builder
 
 ### Email
 - **Library:** nodemailer
