@@ -38,7 +38,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 });
 
 // Allow-list of tables clients may query through /api/db/query.
-const ALLOWED_TABLES = new Set(['users', 'books', 'book_copies', 'transactions', 'site_content', 'notifications']);
+const ALLOWED_TABLES = new Set(['users', 'books', 'book_copies', 'transactions', 'fines', 'fine_policy', 'site_content', 'notifications']);
 
 app.use(express.json({ limit: '15mb' }));
 
@@ -185,6 +185,13 @@ async function updateRows({ table, payload, filters, select, returning, single }
     if (single) query = query.single();
   }
 
+  const { data, error, count } = await query;
+  return { data: data ?? null, error: error || null, count: count ?? 0 };
+}
+
+async function deleteRows({ table, filters }) {
+  let query = supabase.from(table).delete();
+  query = applyFilters(query, filters);
   const { data, error, count } = await query;
   return { data: data ?? null, error: error || null, count: count ?? 0 };
 }
@@ -446,6 +453,8 @@ app.post('/api/db/query', async (req, res) => {
       result = await insertRows(body);
     } else if (body.action === 'update') {
       result = await updateRows(body);
+    } else if (body.action === 'delete') {
+      result = await deleteRows(body);
     } else {
       result = await selectRows(body);
     }
@@ -552,6 +561,7 @@ app.post('/api/notifications', async (req, res) => {
     const type   = String(req.body?.type || 'general').trim();
     const title  = String(req.body?.title || '').trim();
     const body   = String(req.body?.body || '').trim();
+    const fineId = req.body?.fine_id ? String(req.body.fine_id).trim() : null;
     if (!userId || !title) { res.status(400).json({ error: 'user_id and title are required.' }); return; }
 
     // Look up the recipient's email address.
@@ -582,9 +592,11 @@ app.post('/api/notifications', async (req, res) => {
     }
 
     const id = uuidv4();
+    const notifRow = { id, user_id: userId, type, title, body, email_sent: emailSent };
+    if (fineId) notifRow.fine_id = fineId;
     const { error } = await supabase
       .from('notifications')
-      .insert({ id, user_id: userId, type, title, body, email_sent: emailSent });
+      .insert(notifRow);
     if (error) throw error;
 
     res.json({ ok: true, id, email_sent: emailSent, mailer: getMailerMode() });
@@ -731,6 +743,16 @@ async function runColumnMigrations() {
       check: () => supabase.from('transactions').select('walk_in_position').limit(1),
       sql: 'ALTER TABLE transactions ADD COLUMN IF NOT EXISTS walk_in_position text;',
       label: 'walk_in_position',
+    },
+    {
+      check: () => supabase.from('transactions').select('fine_id').limit(1),
+      sql: 'ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fine_id text REFERENCES fines(id) ON DELETE SET NULL;',
+      label: 'transactions.fine_id',
+    },
+    {
+      check: () => supabase.from('notifications').select('fine_id').limit(1),
+      sql: 'ALTER TABLE notifications ADD COLUMN IF NOT EXISTS fine_id text REFERENCES fines(id) ON DELETE SET NULL;',
+      label: 'notifications.fine_id',
     },
   ];
 
