@@ -71,7 +71,7 @@ export default function Login() {
     }
 
     if (userData.role === 'librarian') navigate('/librarian/dashboard');
-    else if (userData.role === 'student') navigate('/student/dashboard');
+    else if (userData.role === 'student' || userData.role === 'teacher') navigate('/student/dashboard');
     else showToast(`Unrecognized role "${userData.role}". Contact your administrator.`, 'warning');
 
     setLoading(false);

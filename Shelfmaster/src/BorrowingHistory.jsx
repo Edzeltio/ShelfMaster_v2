@@ -145,9 +145,9 @@ export default function BorrowingHistory() {
   async function searchStudents() {
     const { data } = await localDb
       .from('users')
-      .select('id, name, student_id, course_year')
+      .select('id, name, student_id, course_year, role')
       .ilike('name', `%${searchQuery}%`)
-      .eq('role', 'student')
+      .in('role', ['student', 'teacher'])
       .limit(5);
     setStudents(data || []);
   }
@@ -368,7 +368,7 @@ export default function BorrowingHistory() {
         <div style={{ position: 'relative', marginBottom: '20px' }}>
           <input
             type="text"
-            placeholder="Search student to view specific report..."
+            placeholder="Search student or teacher to view specific report..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ width: '100%', padding: '15px', borderRadius: '8px', border: '2px solid #cbd5e1', boxSizing: 'border-box', outline: 'none' }}
@@ -376,8 +376,11 @@ export default function BorrowingHistory() {
           {students.length > 0 && (
             <div style={{ position: 'absolute', width: '100%', background: 'white', border: '1px solid #ddd', zIndex: 100, borderRadius: '8px', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
               {students.map(s => (
-                <div key={s.id} onClick={() => fetchHistory(s)} style={{ padding: '12px', cursor: 'pointer', borderBottom: '1px solid #eee' }}>
-                  {s.name} ({s.student_id})
+                <div key={s.id} onClick={() => fetchHistory(s)} style={{ padding: '12px', cursor: 'pointer', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>{s.name} {s.student_id ? `(${s.student_id})` : ''}</span>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: s.role === 'teacher' ? '#FFF0F5' : '#F5FAE8', color: s.role === 'teacher' ? 'var(--maroon)' : 'var(--green)' }}>
+                    {s.role}
+                  </span>
                 </div>
               ))}
             </div>

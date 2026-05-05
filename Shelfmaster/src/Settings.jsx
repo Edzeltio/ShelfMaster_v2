@@ -14,9 +14,6 @@ export default function Settings() {
     footer_text: '',
     borrow_duration_value: 7,
     borrow_duration_unit: 'days',
-  });
-
-  const [finePolicy, setFinePolicy] = useState({
     fine_amount: 5,
     fine_increment_value: 1,
     fine_increment_type: 'per_day',
@@ -34,27 +31,22 @@ export default function Settings() {
   async function fetchContent() {
     setLoading(true);
 
-    const [{ data: siteData, error: siteError }, { data: policyData }] = await Promise.all([
-      localDb.from('site_content').select('*').limit(1).single(),
-      localDb.from('fine_policy').select('fine_amount, fine_increment_value, fine_increment_type').limit(1).maybeSingle(),
-    ]);
+    const { data: siteData, error: siteError } = await localDb.from('site_content').select('*').limit(1).single();
 
     if (siteData) {
-      setFormData(prev => ({ ...prev, ...siteData }));
+      setFormData(prev => ({
+        ...prev,
+        ...siteData,
+        fine_amount: siteData.fine_amount ?? 5,
+        fine_increment_value: siteData.fine_increment_value ?? 1,
+        fine_increment_type: siteData.fine_increment_type || 'per_day',
+      }));
       if (siteData.hero_banner_url?.startsWith('data:')) {
         setUploadPreview(siteData.hero_banner_url);
         setHeroInputMode('upload');
       }
     } else if (siteError && siteError.code !== 'PGRST116') {
       console.error(siteError);
-    }
-
-    if (policyData) {
-      setFinePolicy({
-        fine_amount: policyData.fine_amount ?? 5,
-        fine_increment_value: policyData.fine_increment_value ?? 1,
-        fine_increment_type: policyData.fine_increment_type || 'per_day',
-      });
     }
 
     setLoading(false);
@@ -65,7 +57,7 @@ export default function Settings() {
     setSaving(true);
     setMessage({ text: '', type: '' });
 
-    // Save site_content (everything except fine policy)
+    // Save all settings (including fine policy) into site_content
     const sitePayload = { ...formData };
     let siteError;
     if (sitePayload.id) {
@@ -76,14 +68,8 @@ export default function Settings() {
       siteError = error;
     }
 
-    // Upsert fine_policy (always row id=1)
-    const { error: policyError } = await localDb
-      .from('fine_policy')
-      .upsert([{ id: 1, ...finePolicy, updated_at: new Date().toISOString() }]);
-
-    const error = siteError || policyError;
-    if (error) {
-      setMessage({ text: 'Error saving settings: ' + error.message, type: 'error' });
+    if (siteError) {
+      setMessage({ text: 'Error saving settings: ' + siteError.message, type: 'error' });
     } else {
       setMessage({ text: 'Settings saved successfully!', type: 'success' });
       fetchContent();
@@ -118,9 +104,9 @@ export default function Settings() {
   };
 
   // ── Derived fine preview values ───────────────────────────────────────────
-  const fineAmount     = Number(finePolicy.fine_amount ?? 5);
-  const incrValue      = Math.max(1, Number(finePolicy.fine_increment_value ?? 1));
-  const incrType       = finePolicy.fine_increment_type || 'per_day';
+  const fineAmount     = Number(formData.fine_amount ?? 5);
+  const incrValue      = Math.max(1, Number(formData.fine_increment_value ?? 1));
+  const incrType       = formData.fine_increment_type || 'per_day';
   const incrUnitLabel  = incrType === 'per_hour' ? 'hour' : 'day';
   const incrUnitPlural = incrType === 'per_hour' ? 'hours' : 'days';
 
@@ -291,8 +277,8 @@ export default function Settings() {
                 <span style={{ color: '#991b1b', fontWeight: 700 }}>₱</span>
                 <input
                   type="number" min="0" step="0.01" name="fine_amount"
-                  value={finePolicy.fine_amount ?? 5}
-                  onChange={(e) => setFinePolicy(p => ({
+                  value={formData.fine_amount ?? 5}
+                  onChange={(e) => setFormData(p => ({
                     ...p,
                     fine_amount: e.target.value === '' ? '' : Number(e.target.value),
                   }))}
@@ -305,16 +291,16 @@ export default function Settings() {
 
               <input
                 type="number" min="1" step="1" name="fine_increment_value"
-                value={finePolicy.fine_increment_value ?? 1}
-                onChange={(e) => setFinePolicy(p => ({ ...p, fine_increment_value: e.target.value === '' ? '' : Number(e.target.value) }))}
+                value={formData.fine_increment_value ?? 1}
+                onChange={(e) => setFormData(p => ({ ...p, fine_increment_value: e.target.value === '' ? '' : Number(e.target.value) }))}
                 placeholder="1"
                 style={{ width: '80px', padding: '8px 10px', border: '2px solid #fca5a5', borderRadius: '6px', fontWeight: 700, fontSize: '1rem', color: '#dc2626', textAlign: 'center', outline: 'none' }}
               />
 
               <select
                 name="fine_increment_type"
-                value={finePolicy.fine_increment_type || 'per_day'}
-                onChange={(e) => setFinePolicy(p => ({ ...p, fine_increment_type: e.target.value }))}
+                value={formData.fine_increment_type || 'per_day'}
+                onChange={(e) => setFormData(p => ({ ...p, fine_increment_type: e.target.value }))}
                 style={{ padding: '8px 12px', border: '2px solid #fca5a5', borderRadius: '6px', fontWeight: 700, fontSize: '0.95rem', color: '#dc2626', cursor: 'pointer', outline: 'none', background: 'white' }}
               >
                 <option value="per_day">day(s)</option>

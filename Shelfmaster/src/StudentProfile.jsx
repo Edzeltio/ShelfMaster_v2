@@ -13,7 +13,6 @@ function parseGradeSection(combined) {
   const sep = ' - ';
   const idx = combined.indexOf(sep);
   if (idx === -1) {
-    // try to detect if it starts with Grade N
     const m = combined.match(/^(Grade\s+\d+)\s*(.*)?$/i);
     if (m) return { grade: m[1].trim(), section: m[2]?.trim() || '' };
     return { grade: '', section: combined.trim() };
@@ -25,7 +24,12 @@ export default function StudentProfile() {
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+
+  // Student form state
   const [form, setForm] = useState({ name: '', lrn: '', grade: '', section: '' });
+  // Teacher form state
+  const [teacherForm, setTeacherForm] = useState({ name: '', employeeId: '', position: '', gradeSection: '', contact: '' });
+
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [toast, setToast] = useState({ message: '', type: 'success' });
@@ -49,27 +53,39 @@ export default function StudentProfile() {
     if (data) {
       setUserData({ ...data, email: user.email });
     } else {
-      setUserData({ name: user.email?.split('@')[0] || 'Student', email: user.email, lrn: '', grade_section: '', role: 'student', status: 'active' });
+      setUserData({ name: user.email?.split('@')[0] || 'User', email: user.email, lrn: '', grade_section: '', role: 'student', status: 'active' });
     }
     setLoading(false);
   }
 
+  const isTeacher = userData?.role === 'teacher';
+
   function openEditModal() {
-    const gs = userData?.grade_section || userData?.course_year || '';
-    const { grade, section } = parseGradeSection(gs);
-    setForm({
-      name: userData?.name || '',
-      lrn: userData?.lrn || userData?.student_id || '',
-      grade,
-      section,
-    });
     setSaveMsg('');
+    if (isTeacher) {
+      setTeacherForm({
+        name: userData?.name || '',
+        employeeId: userData?.student_id || '',
+        position: userData?.course_year || '',
+        gradeSection: userData?.grade_section || '',
+        contact: userData?.lrn || '',
+      });
+    } else {
+      const gs = userData?.grade_section || userData?.course_year || '';
+      const { grade, section } = parseGradeSection(gs);
+      setForm({
+        name: userData?.name || '',
+        lrn: userData?.lrn || userData?.student_id || '',
+        grade,
+        section,
+      });
+    }
     setShowModal(true);
   }
 
   const sanitizeText = (str) => str.replace(/<[^>]*>/g, '').trim();
 
-  async function handleSave(e) {
+  async function handleSaveStudent(e) {
     e.preventDefault();
     setSaving(true);
     setSaveMsg('');
@@ -81,9 +97,7 @@ export default function StudentProfile() {
     const cleanGrade = sanitizeText(form.grade);
     const cleanSection = sanitizeText(form.section);
 
-    if (!cleanName || cleanName.length < 3) {
-      setSaveMsg('Full name must be at least 3 characters.'); setSaving(false); return;
-    }
+    if (!cleanName || cleanName.length < 3) { setSaveMsg('Full name must be at least 3 characters.'); setSaving(false); return; }
     if (!cleanLrn) { setSaveMsg('LRN is required.'); setSaving(false); return; }
     if (!LRN_PATTERN.test(cleanLrn)) { setSaveMsg('LRN must be exactly 12 digits.'); setSaving(false); return; }
     if (!cleanGrade) { setSaveMsg('Please select a grade level.'); setSaving(false); return; }
@@ -93,19 +107,56 @@ export default function StudentProfile() {
 
     const { data: saved, error } = await localDb
       .from('users')
-      .update({
-        name: cleanName,
-        lrn: cleanLrn,
-        student_id: cleanLrn,
-        grade_section: combined,
-        course_year: combined,
-      })
+      .update({ name: cleanName, lrn: cleanLrn, student_id: cleanLrn, grade_section: combined, course_year: combined })
       .eq('auth_id', user.id)
       .select('name, lrn, grade_section')
       .maybeSingle();
 
     if (error) {
-      console.error('Profile update error:', error);
+      setSaveMsg('Error: ' + error.message);
+    } else if (!saved) {
+      setSaveMsg('⚠️ Save failed: the database did not accept the change. Ask your admin to enable UPDATE access on the users table.');
+    } else {
+      setUserData(prev => ({ ...prev, name: cleanName, lrn: cleanLrn, student_id: cleanLrn, grade_section: combined, course_year: combined }));
+      setSaveMsg('success');
+      setTimeout(() => { setShowModal(false); setSaveMsg(''); }, 1000);
+    }
+    setSaving(false);
+  }
+
+  async function handleSaveTeacher(e) {
+    e.preventDefault();
+    setSaving(true);
+    setSaveMsg('');
+    const { data: { user } } = await localDb.auth.getUser();
+    if (!user) { setSaving(false); return; }
+
+    const cleanName = sanitizeText(teacherForm.name);
+    const cleanEmployeeId = sanitizeText(teacherForm.employeeId);
+    const cleanPosition = sanitizeText(teacherForm.position);
+    const cleanGradeSection = sanitizeText(teacherForm.gradeSection);
+    const cleanContact = sanitizeText(teacherForm.contact);
+
+    if (!cleanName || cleanName.length < 3) { setSaveMsg('Full name must be at least 3 characters.'); setSaving(false); return; }
+    if (!cleanEmployeeId) { setSaveMsg('Employee ID is required.'); setSaving(false); return; }
+    if (!cleanPosition) { setSaveMsg('Position / Designation is required.'); setSaving(false); return; }
+    if (!cleanGradeSection) { setSaveMsg('Track / Strand is required.'); setSaving(false); return; }
+    if (!cleanContact) { setSaveMsg('Contact info is required.'); setSaving(false); return; }
+
+    const { data: saved, error } = await localDb
+      .from('users')
+      .update({
+        name: cleanName,
+        student_id: cleanEmployeeId,
+        course_year: cleanPosition,
+        grade_section: cleanGradeSection,
+        lrn: cleanContact,
+      })
+      .eq('auth_id', user.id)
+      .select('name, student_id, course_year, grade_section, lrn')
+      .maybeSingle();
+
+    if (error) {
       setSaveMsg('Error: ' + error.message);
     } else if (!saved) {
       setSaveMsg('⚠️ Save failed: the database did not accept the change. Ask your admin to enable UPDATE access on the users table.');
@@ -113,10 +164,10 @@ export default function StudentProfile() {
       setUserData(prev => ({
         ...prev,
         name: cleanName,
-        lrn: cleanLrn,
-        student_id: cleanLrn,
-        grade_section: combined,
-        course_year: combined,
+        student_id: cleanEmployeeId,
+        course_year: cleanPosition,
+        grade_section: cleanGradeSection,
+        lrn: cleanContact,
       }));
       setSaveMsg('success');
       setTimeout(() => { setShowModal(false); setSaveMsg(''); }, 1000);
@@ -132,7 +183,7 @@ export default function StudentProfile() {
     );
   }
 
-  const initials = (userData?.name || 'S').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const initials = (userData?.name || 'U').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const isActive = (userData?.status || 'active') === 'active';
 
   return (
@@ -151,7 +202,7 @@ export default function StudentProfile() {
           </div>
           <div style={{ padding: '0 32px 28px' }}>
             <h2 style={{ margin: '0 0 4px', fontSize: '1.6rem', color: '#1e293b' }}>
-              {userData?.name || 'Student'}
+              {userData?.name || 'User'}
             </h2>
             <p style={{ margin: '0 0 10px', color: '#64748b', fontSize: '0.92rem' }}>
               {userData?.email || '—'}
@@ -162,9 +213,20 @@ export default function StudentProfile() {
 
         {/* ── Info Grid ── */}
         <div style={infoGridStyle}>
-          <InfoCard icon="🪪" label="LRN" value={userData?.lrn || userData?.student_id || '—'} />
-          <InfoCard icon="🎓" label="Grade Level" value={parseGradeSection(userData?.grade_section || userData?.course_year).grade || '—'} />
-          <InfoCard icon="🏫" label="Section / Strand" value={parseGradeSection(userData?.grade_section || userData?.course_year).section || '—'} />
+          {isTeacher ? (
+            <>
+              <InfoCard icon="🪪" label="Employee ID" value={userData?.student_id || '—'} />
+              <InfoCard icon="💼" label="Position / Designation" value={userData?.course_year || '—'} />
+              <InfoCard icon="🏫" label="Track / Strand" value={userData?.grade_section || '—'} />
+              <InfoCard icon="📞" label="Contact Info" value={userData?.lrn || '—'} />
+            </>
+          ) : (
+            <>
+              <InfoCard icon="🪪" label="LRN" value={userData?.lrn || userData?.student_id || '—'} />
+              <InfoCard icon="🎓" label="Grade Level" value={parseGradeSection(userData?.grade_section || userData?.course_year).grade || '—'} />
+              <InfoCard icon="🏫" label="Section / Strand" value={parseGradeSection(userData?.grade_section || userData?.course_year).section || '—'} />
+            </>
+          )}
           <InfoCard
             icon={isActive ? '✅' : '🚫'}
             label="Account Status"
@@ -189,61 +251,101 @@ export default function StudentProfile() {
               <button onClick={() => setShowModal(false)} style={closeBtnStyle}>✕</button>
             </div>
 
-            <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <Field label="Full Name" placeholder="Your full name" value={form.name}
-                onChange={v => setForm(p => ({ ...p, name: v }))} minLength={3} maxLength={80} required />
+            {isTeacher ? (
+              /* ── Teacher edit form ── */
+              <form onSubmit={handleSaveTeacher} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <Field label="Full Name" placeholder="Your full name" value={teacherForm.name}
+                  onChange={v => setTeacherForm(p => ({ ...p, name: v }))} minLength={3} maxLength={80} required />
 
-              <Field label="LRN (12 digits)" placeholder="123456789012" value={form.lrn}
-                onChange={v => setForm(p => ({ ...p, lrn: v.replace(/\D/g, '').slice(0, 12) }))}
-                inputMode="numeric" maxLength={12} required />
+                <Field label="Employee ID" placeholder="e.g. EMP-2024-001" value={teacherForm.employeeId}
+                  onChange={v => setTeacherForm(p => ({ ...p, employeeId: v }))} maxLength={50} required />
 
-              {/* Grade + Section separated */}
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Grade Level</label>
-                  <select
-                    value={form.grade}
-                    onChange={e => setForm(p => ({ ...p, grade: e.target.value }))}
-                    required
-                    style={selectFieldStyle}
-                    onFocus={e => (e.target.style.borderColor = 'var(--maroon)')}
-                    onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-                  >
-                    <option value="">Select Grade</option>
-                    {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
-                  </select>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Position / Designation</label>
+                    <input type="text" placeholder="e.g. Teacher I" value={teacherForm.position}
+                      onChange={e => setTeacherForm(p => ({ ...p, position: e.target.value }))}
+                      required maxLength={80} style={fieldInputStyle}
+                      onFocus={e => (e.target.style.borderColor = 'var(--maroon)')}
+                      onBlur={e => (e.target.style.borderColor = '#e2e8f0')} />
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Track / Strand</label>
+                    <input type="text" placeholder="e.g. STEM or Grade 9" value={teacherForm.gradeSection}
+                      onChange={e => setTeacherForm(p => ({ ...p, gradeSection: e.target.value }))}
+                      required maxLength={50} style={fieldInputStyle}
+                      onFocus={e => (e.target.style.borderColor = 'var(--maroon)')}
+                      onBlur={e => (e.target.style.borderColor = '#e2e8f0')} />
+                  </div>
                 </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Section / Strand</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. STEM or Rizal"
-                    value={form.section}
-                    onChange={e => setForm(p => ({ ...p, section: e.target.value }))}
-                    required maxLength={50}
-                    style={fieldInputStyle}
-                    onFocus={e => (e.target.style.borderColor = 'var(--maroon)')}
-                    onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-                  />
+
+                <Field label="Contact Info / Email" placeholder="e.g. 09171234567 or teacher@school.edu" value={teacherForm.contact}
+                  onChange={v => setTeacherForm(p => ({ ...p, contact: v }))} maxLength={100} required />
+
+                {saveMsg && saveMsg !== 'success' && (
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#ef4444', textAlign: 'center' }}>{saveMsg}</p>
+                )}
+                {saveMsg === 'success' && (
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--green)', textAlign: 'center', fontWeight: 600 }}>
+                    ✅ Saved successfully!
+                  </p>
+                )}
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                  <button type="button" onClick={() => setShowModal(false)} style={cancelBtnStyle}>Cancel</button>
+                  <button type="submit" disabled={saving} style={saveBtnStyle}>
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
                 </div>
-              </div>
+              </form>
+            ) : (
+              /* ── Student edit form ── */
+              <form onSubmit={handleSaveStudent} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <Field label="Full Name" placeholder="Your full name" value={form.name}
+                  onChange={v => setForm(p => ({ ...p, name: v }))} minLength={3} maxLength={80} required />
 
-              {saveMsg && saveMsg !== 'success' && (
-                <p style={{ margin: 0, fontSize: '0.85rem', color: '#ef4444', textAlign: 'center' }}>{saveMsg}</p>
-              )}
-              {saveMsg === 'success' && (
-                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--green)', textAlign: 'center', fontWeight: 600 }}>
-                  ✅ Saved successfully!
-                </p>
-              )}
+                <Field label="LRN (12 digits)" placeholder="123456789012" value={form.lrn}
+                  onChange={v => setForm(p => ({ ...p, lrn: v.replace(/\D/g, '').slice(0, 12) }))}
+                  inputMode="numeric" maxLength={12} required />
 
-              <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
-                <button type="button" onClick={() => setShowModal(false)} style={cancelBtnStyle}>Cancel</button>
-                <button type="submit" disabled={saving} style={saveBtnStyle}>
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </form>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Grade Level</label>
+                    <select value={form.grade} onChange={e => setForm(p => ({ ...p, grade: e.target.value }))}
+                      required style={selectFieldStyle}
+                      onFocus={e => (e.target.style.borderColor = 'var(--maroon)')}
+                      onBlur={e => (e.target.style.borderColor = '#e2e8f0')}>
+                      <option value="">Select Grade</option>
+                      {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Section / Strand</label>
+                    <input type="text" placeholder="e.g. STEM or Rizal" value={form.section}
+                      onChange={e => setForm(p => ({ ...p, section: e.target.value }))}
+                      required maxLength={50} style={fieldInputStyle}
+                      onFocus={e => (e.target.style.borderColor = 'var(--maroon)')}
+                      onBlur={e => (e.target.style.borderColor = '#e2e8f0')} />
+                  </div>
+                </div>
+
+                {saveMsg && saveMsg !== 'success' && (
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#ef4444', textAlign: 'center' }}>{saveMsg}</p>
+                )}
+                {saveMsg === 'success' && (
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--green)', textAlign: 'center', fontWeight: 600 }}>
+                    ✅ Saved successfully!
+                  </p>
+                )}
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                  <button type="button" onClick={() => setShowModal(false)} style={cancelBtnStyle}>Cancel</button>
+                  <button type="submit" disabled={saving} style={saveBtnStyle}>
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -287,9 +389,11 @@ const rolePillStyle = { display: 'inline-block', background: '#F5FAE8', color: '
 const infoGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' };
 const infoCardStyle = { background: 'white', borderRadius: '14px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9' };
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' };
-const modalStyle = { background: 'white', borderRadius: '18px', padding: '32px', width: '100%', maxWidth: '480px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' };
+const modalStyle = { background: 'white', borderRadius: '18px', padding: '32px', width: '100%', maxWidth: '480px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', maxHeight: '90vh', overflowY: 'auto' };
 const closeBtnStyle = { background: 'none', border: 'none', fontSize: '1.1rem', cursor: 'pointer', color: '#94a3b8', padding: '4px 8px' };
 const cancelBtnStyle = { flex: 1, padding: '11px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: 'white', color: '#475569', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' };
 const saveBtnStyle = { flex: 2, padding: '11px', borderRadius: '10px', border: 'none', background: 'var(--maroon)', color: 'white', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' };
 const fieldInputStyle = { padding: '11px 14px', borderRadius: '9px', border: '1.5px solid #e2e8f0', fontSize: '0.95rem', background: 'var(--cream)', outline: 'none', width: '100%', boxSizing: 'border-box', transition: 'border-color 0.2s' };
 const selectFieldStyle = { ...fieldInputStyle, cursor: 'pointer' };
+
+

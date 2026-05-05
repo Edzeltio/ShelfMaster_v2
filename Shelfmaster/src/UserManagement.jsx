@@ -8,6 +8,7 @@ export default function UserManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
+  const [activeTab, setActiveTab] = useState('student'); // 'student' | 'teacher'
   const [toast, setToast] = useState({ message: '', type: 'success' });
   const showToast = (message, type = 'success') => setToast({ message, type });
 
@@ -17,17 +18,17 @@ export default function UserManagement() {
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [activeTab]);
 
   async function fetchUsers() {
     setLoading(true);
     const { data, error } = await localDbAdmin
       .from('users')
       .select('*, auth_id, transactions (id, status)')
-      .eq('role', 'student')
+      .eq('role', activeTab)
       .order('name', { ascending: true });
 
-    if (error) console.error('Error fetching students:', error);
+    if (error) console.error(`Error fetching ${activeTab}s:`, error);
     else setUsers(data || []);
     setLoading(false);
   }
@@ -78,7 +79,7 @@ export default function UserManagement() {
   async function handleDelete(user) {
     // Safety: user must be archived first
     if (!user.archived_at) {
-      showToast('Archive this student first before deleting.', 'error');
+      showToast(`Archive this ${activeTab} first before deleting.`, 'error');
       return;
     }
     if (!window.confirm(
@@ -153,11 +154,11 @@ export default function UserManagement() {
   return (
     <div style={{ maxWidth: '1200px' }}>
       <Toast {...toast} onClose={() => setToast({ message: '' })} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h1 style={{ color: 'var(--dark-blue)', margin: 0 }}>Student Management</h1>
+          <h1 style={{ color: 'var(--dark-blue)', margin: 0 }}>User Management</h1>
           <p style={{ color: 'var(--text-muted)', marginTop: '5px' }}>
-            Search, archive, restore or permanently delete student accounts.
+            Search, archive, restore or permanently delete user accounts.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -174,7 +175,7 @@ export default function UserManagement() {
           </button>
           <input
             type="text"
-            placeholder="Search by name, LRN, grade & section..."
+            placeholder={activeTab === 'teacher' ? 'Search by name, Employee ID, position...' : 'Search by name, LRN, grade & section...'}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ width: '320px', padding: '12px 20px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', boxSizing: 'border-box' }}
@@ -182,17 +183,40 @@ export default function UserManagement() {
         </div>
       </div>
 
+      {/* ── Role Tabs ── */}
+      <div style={{ display: 'flex', gap: '0', marginBottom: '20px', borderBottom: '2px solid #e2e8f0' }}>
+        {[
+          { key: 'student', label: '🎓 Students' },
+          { key: 'teacher', label: '👩‍🏫 Teachers' },
+        ].map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => { setActiveTab(tab.key); setSelectedUser(null); setUserLoans([]); setSearchQuery(''); }}
+            style={{
+              padding: '10px 24px', border: 'none', cursor: 'pointer',
+              fontWeight: 700, fontSize: '0.9rem',
+              borderBottom: activeTab === tab.key ? '2px solid var(--maroon)' : '2px solid transparent',
+              color: activeTab === tab.key ? 'var(--maroon)' : '#64748b',
+              background: 'transparent', marginBottom: '-2px', transition: 'all 0.15s',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
-        <p>Loading student directory...</p>
+        <p>Loading {activeTab} directory...</p>
       ) : (
         <div style={{ background: 'white', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.03)', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead style={{ background: '#F5FAE8', borderBottom: '2px solid #e2e8f0' }}>
               <tr>
-                <th style={thStyle}>Student Name</th>
-                <th style={thStyle}>LRN / Student ID</th>
-                <th style={thStyle}>Grade & Section / Strand</th>
-                <th style={thStyle}>Books Held</th>
+                <th style={thStyle}>{activeTab === 'teacher' ? 'Teacher Name' : 'Student Name'}</th>
+                <th style={thStyle}>{activeTab === 'teacher' ? 'Employee ID' : 'LRN / Student ID'}</th>
+                <th style={thStyle}>{activeTab === 'teacher' ? 'Position / Designation' : 'Grade & Section / Strand'}</th>
+                <th style={thStyle}>{activeTab === 'teacher' ? 'Track / Strand' : 'Books Held'}</th>
+                {activeTab === 'teacher' && <th style={thStyle}>Contact Info</th>}
                 <th style={thStyle}>Status</th>
                 <th style={thStyle}>Actions</th>
               </tr>
@@ -200,8 +224,8 @@ export default function UserManagement() {
             <tbody>
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan="6" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
-                    {showArchived ? 'No archived students.' : 'No students found.'}
+                  <td colSpan={activeTab === 'teacher' ? 7 : 6} style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
+                    {showArchived ? `No archived ${activeTab}s.` : `No ${activeTab}s found.`}
                   </td>
                 </tr>
               ) : (
@@ -212,7 +236,7 @@ export default function UserManagement() {
 
                   return (
                     <React.Fragment key={user.id}>
-                      {/* Student row */}
+                      {/* User row */}
                       <tr style={{ borderBottom: isOpen ? 'none' : '1px solid #f1f5f9', background: isOpen ? '#f0fdf4' : (archived ? '#fafafa' : 'white'), opacity: archived ? 0.78 : 1 }}>
                         <td style={{ padding: '15px 20px' }}>
                           <div style={{ fontWeight: 'bold', color: 'var(--dark-blue)' }}>{user.name}</div>
@@ -223,32 +247,45 @@ export default function UserManagement() {
                           )}
                         </td>
                         <td style={{ padding: '15px 20px', color: '#475569' }}>
-                          {user.lrn || user.student_id || <span style={{ color: '#94a3b8' }}>—</span>}
+                          {activeTab === 'teacher'
+                            ? (user.student_id || <span style={{ color: '#94a3b8' }}>—</span>)
+                            : (user.lrn || user.student_id || <span style={{ color: '#94a3b8' }}>—</span>)}
                         </td>
                         <td style={{ padding: '15px 20px', color: '#475569' }}>
-                          {user.grade_section || user.course_year || <span style={{ color: '#94a3b8' }}>—</span>}
+                          {activeTab === 'teacher'
+                            ? (user.course_year || <span style={{ color: '#94a3b8' }}>—</span>)
+                            : (user.grade_section || user.course_year || <span style={{ color: '#94a3b8' }}>—</span>)}
                         </td>
                         <td style={{ padding: '15px 20px' }}>
-                          <button
-                            onClick={() => toggleLoans(user)}
-                            disabled={activeLoans === 0}
-                            title={activeLoans > 0 ? `View ${activeLoans} borrowed book${activeLoans > 1 ? 's' : ''}` : 'No active loans'}
-                            style={{
-                              background: activeLoans > 0 ? (isOpen ? '#16a34a' : '#dcfce7') : '#f8fafc',
-                              color: activeLoans > 0 ? (isOpen ? 'white' : '#16a34a') : '#94a3b8',
-                              padding: '5px 12px', borderRadius: '6px', fontSize: '0.85rem',
-                              fontWeight: 700, border: 'none',
-                              cursor: activeLoans > 0 ? 'pointer' : 'default',
-                              transition: 'all 0.15s',
-                              display: 'inline-flex', alignItems: 'center', gap: '6px'
-                            }}
-                          >
-                            {activeLoans > 0 ? '📚' : '—'} {activeLoans} {activeLoans === 1 ? 'Book' : 'Books'}
-                            {activeLoans > 0 && (
-                              <span style={{ fontSize: '0.65rem', marginLeft: '2px' }}>{isOpen ? '▲' : '▼'}</span>
-                            )}
-                          </button>
+                          {activeTab === 'teacher' ? (
+                            <span style={{ color: '#475569' }}>{user.grade_section || <span style={{ color: '#94a3b8' }}>—</span>}</span>
+                          ) : (
+                            <button
+                              onClick={() => toggleLoans(user)}
+                              disabled={activeLoans === 0}
+                              title={activeLoans > 0 ? `View ${activeLoans} borrowed book${activeLoans > 1 ? 's' : ''}` : 'No active loans'}
+                              style={{
+                                background: activeLoans > 0 ? (isOpen ? '#16a34a' : '#dcfce7') : '#f8fafc',
+                                color: activeLoans > 0 ? (isOpen ? 'white' : '#16a34a') : '#94a3b8',
+                                padding: '5px 12px', borderRadius: '6px', fontSize: '0.85rem',
+                                fontWeight: 700, border: 'none',
+                                cursor: activeLoans > 0 ? 'pointer' : 'default',
+                                transition: 'all 0.15s',
+                                display: 'inline-flex', alignItems: 'center', gap: '6px'
+                              }}
+                            >
+                              {activeLoans > 0 ? '📚' : '—'} {activeLoans} {activeLoans === 1 ? 'Book' : 'Books'}
+                              {activeLoans > 0 && (
+                                <span style={{ fontSize: '0.65rem', marginLeft: '2px' }}>{isOpen ? '▲' : '▼'}</span>
+                              )}
+                            </button>
+                          )}
                         </td>
+                        {activeTab === 'teacher' && (
+                          <td style={{ padding: '15px 20px', color: '#475569', fontSize: '0.85rem' }}>
+                            {user.lrn || <span style={{ color: '#94a3b8' }}>—</span>}
+                          </td>
+                        )}
                         <td style={{ padding: '15px 20px' }}>
                           <span style={{
                             color: archived ? '#94a3b8' : (user.status === 'active' ? '#10b981' : '#ef4444'),
@@ -280,7 +317,7 @@ export default function UserManagement() {
                       {/* Dropdown row — expands inline */}
                       {isOpen && (
                         <tr style={{ borderBottom: '2px solid #bbf7d0' }}>
-                          <td colSpan="6" style={{ padding: 0, background: '#f8fffe' }}>
+                          <td colSpan={activeTab === 'teacher' ? 7 : 6} style={{ padding: 0, background: '#f8fffe' }}>
                             {/* Inner header */}
                             <div style={{
                               display: 'flex', alignItems: 'center', justifyContent: 'space-between',

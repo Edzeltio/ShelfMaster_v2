@@ -25,7 +25,7 @@ export default function StudentRoute({ children }) {
         .eq('auth_id', userId)
         .single();
 
-      if (!data || data.role !== 'student') {
+      if (!data || (data.role !== 'student' && data.role !== 'teacher')) {
         navigate('/login', { replace: true });
       } else {
         setStatus('allowed');
