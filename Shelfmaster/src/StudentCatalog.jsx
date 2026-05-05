@@ -105,7 +105,7 @@ export default function StudentCatalog() {
 
       const { data: userData, error: userErr } = await localDb
         .from('users')
-        .select('id')
+        .select('id, name')
         .eq('auth_id', user.id)
         .single();
       if (userErr || !userData) {
@@ -144,6 +144,19 @@ export default function StudentCatalog() {
         due_date: borrowDueDate,
       }]);
       if (error) throw error;
+
+      // Fire-and-forget: notify all librarians by email
+      (() => {
+        const session = JSON.parse(window.sessionStorage.getItem('shelfmaster-session') || 'null');
+        fetch('/api/notify/librarians', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          body: JSON.stringify({ book_title: book.title, student_name: userData.name || '' }),
+        }).catch(() => {});
+      })();
 
       showToast(`"${book.title}" requested! Wait for librarian approval.`, 'success');
       closeBorrowModal();

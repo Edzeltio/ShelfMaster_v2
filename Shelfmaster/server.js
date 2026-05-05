@@ -605,6 +605,64 @@ app.post('/api/notifications', async (req, res) => {
   }
 });
 
+// Notify all librarians by email when a student submits a borrow request.
+// Any authenticated user (student or librarian) may call this endpoint.
+app.post('/api/notify/librarians', async (req, res) => {
+  const tokenUser = await getUserFromRequest(req);
+  if (!tokenUser) {
+    res.status(401).json({ error: 'Not signed in.' });
+    return;
+  }
+  try {
+    const bookTitle   = String(req.body?.book_title   || '').trim();
+    const studentName = String(req.body?.student_name || '').trim();
+    if (!bookTitle) { res.status(400).json({ error: 'book_title is required.' }); return; }
+
+    const { data: librarians } = await supabase
+      .from('users')
+      .select('id, name, auth_id')
+      .eq('role', 'librarian');
+
+    if (!librarians || librarians.length === 0) {
+      res.json({ ok: true, sent: 0 }); return;
+    }
+
+    const authIds = librarians.map(l => l.auth_id).filter(Boolean);
+    const { data: authRows } = await supabase
+      .from('auth_users')
+      .select('email')
+      .in('id', authIds);
+
+    const emails = (authRows || []).map(r => r.email).filter(Boolean);
+    if (emails.length === 0) { res.json({ ok: true, sent: 0 }); return; }
+
+    const appUrl = APP_BASE_URL || '';
+    const requesterLabel = studentName || 'A student';
+    const subject = `[ShelfMaster] New Borrow Request — ${bookTitle}`;
+    const bodyHtml = `${requesterLabel} has submitted a borrow request for <strong>"${bookTitle}"</strong>. Please log in to review and approve or decline the request.`;
+
+    let sent = 0;
+    for (const email of emails) {
+      const r = await sendMail({
+        to: email,
+        subject,
+        html: htmlEmail({
+          heading: 'New Borrow Request',
+          body: bodyHtml,
+          ctaUrl: appUrl ? `${appUrl}/librarian/requests` : undefined,
+          ctaLabel: 'Review Requests',
+        }),
+        text: `${requesterLabel} has requested to borrow "${bookTitle}". Log in to ShelfMaster to review it.`,
+      });
+      if (r.ok) sent++;
+    }
+
+    res.json({ ok: true, sent, mailer: getMailerMode() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/ebooks', async (req, res) => {
   if (!(await requireLibrarian(req, res))) return;
 
