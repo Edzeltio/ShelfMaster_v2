@@ -910,7 +910,22 @@ export default function BorrowingHistory() {
           fineAmt > 0 ? `PHP ${fineAmt.toFixed(2)}` : (overdue ? `~PHP ${computeFine(item.due_date).toFixed(2)}` : '—'),
         ];
       });
-      autoTable(doc, { startY: 35, head: [cols], body: rows, theme: 'grid', headStyles: { fillColor: [139, 0, 0] } });
+      autoTable(doc, {
+        startY: 35,
+        head: [cols],
+        body: rows,
+        theme: 'grid',
+        headStyles: { fillColor: [139, 0, 0] },
+        columnStyles: {
+          0: { cellWidth: 35 },  // Student
+          1: { cellWidth: 50 },  // Book Title
+          2: { cellWidth: 20 },  // Copy / Accession ID
+          3: { cellWidth: 20 },  // Status
+          4: { cellWidth: 22 },  // Due Date
+          5: { cellWidth: 12 },  // Overdue
+          6: { cellWidth: 20 },  // Fine (PHP)
+        },
+      });
       doc.save(fileName);
       showToast('PDF exported successfully.', 'success');
     } catch (err) { console.error(err); showToast('PDF export failed.', 'error'); }
@@ -937,11 +952,8 @@ export default function BorrowingHistory() {
         'Fine (PHP)',
       ];
 
-      // Escape a single cell value for CSV
       const esc = (v) => {
         const s = v == null ? '' : String(v);
-        // Always quote strings that contain commas, quotes, or newlines
-        // Also prefix with a single quote trick is unnecessary if we quote properly.
         return (s.includes(',') || s.includes('"') || s.includes('\n') || s.startsWith('=') || s.startsWith('+') || s.startsWith('-') || s.startsWith('@'))
           ? `"${s.replace(/"/g, '""')}"`
           : s;
